@@ -1,7 +1,7 @@
 #define MY_CALL                                 "ABCDE" // Default max is 10 chars
 #define MY_TIMEZONE                             "EST: "  // Default max is 10 chars
-//#define ITU_REGION                            1  // Europe
-#define ITU_REGION                              2  // USA
+#define ITU_REGION                            1  // Europe
+//#define ITU_REGION                              2  // USA
 //#define ITU_REGION                            3  // Asia/Oceania
 #define TIME_24H // comment this out to get 12 hour time
 
