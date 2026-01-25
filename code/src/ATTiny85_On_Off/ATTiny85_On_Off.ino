@@ -42,6 +42,7 @@
 #define START_SHUTDOWN    1       // HIGH on this pin from ATTiny tells Teensy to begin shut down code
 #define PANEL_SWITCH      3       // Pin connected to the front panel switch to turn radio ON/OFF
 #define FET_SWITCH        4       // Pin connected to the FET switch. HIGH=RADIO ON, LOW=RADIO OFF
+#define PI_SHUTDOWN_COMPLETE 0       // HIGH on this pin from Raspberry Pi tells ATTiny that shutdown routine is complete
 
 #define OFF_STATE      1
 #define ON_STATE       2
@@ -58,6 +59,7 @@ void setup() {
   pinMode(START_SHUTDOWN,    OUTPUT);
   pinMode(PANEL_SWITCH,      INPUT); // this has an external pulldown. Gets pulled high when button is pressed.
   pinMode(FET_SWITCH,        OUTPUT);
+  pinMode(PI_SHUTDOWN_COMPLETE, INPUT_PULLUP);
 
   // Set initial state to "radio off" initially
   digitalWrite(FET_SWITCH,     LOW);        // RADIO OFF - Shut off power FET
@@ -85,8 +87,8 @@ void loop()
       }
       break;
     case SHUTDOWN_STATE:
-      // Exit SHUTDOWN_STATE to OFF_STATE if the Teensy has notified us that it has finished shutting down
-      if (digitalRead(SHUTDOWN_COMPLETE) == HIGH) {
+      // Exit SHUTDOWN_STATE to OFF_STATE if the Teensy and the Raspberry Pi have notified us that they have finished shutting down
+      if (digitalRead(SHUTDOWN_COMPLETE) == HIGH && digitalRead(PI_SHUTDOWN_COMPLETE) == HIGH) {
         digitalWrite(START_SHUTDOWN, LOW);    // Shutdown cycle is complete
         digitalWrite(FET_SWITCH, LOW);        // Set the FET switch to "OFF"
         currentState = OFF_STATE;             // Change to OFF state
