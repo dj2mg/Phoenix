@@ -1441,16 +1441,16 @@ FASTRUN void loop(void){
     // Check for signal to begin shutdown and perform shutdown routine if requested
     if (digitalRead(BEGIN_TEENSY_SHUTDOWN)) ShutdownTeensy();
 
-        // Step 1: Check for new events and handle them
-        ProcessKey1Debounce();
-        ProcessPTTDebounce();
-        CheckForFrontPanelInterrupts();
-        CheckForCATSerialEvents();
-        ConsumeInterrupt();
+    // Step 1: Check for new events and handle them
+    ProcessKey1Debounce();
+    ProcessPTTDebounce();
+    CheckForFrontPanelInterrupts();
+    CheckForCATSerialEvents();
+    ConsumeInterrupt();
 
-        // Step 2: Perform signal processing
-        PerformSignalProcessing();
+    // Step 2: Perform signal processing
+    PerformSignalProcessing();
 
-        // Step 3: Draw the display
-        DrawDisplay();
+    // Step 3: Draw the display
+    DrawDisplay();
 }
