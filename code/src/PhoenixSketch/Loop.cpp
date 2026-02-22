@@ -1403,7 +1403,14 @@ void ShutdownTeensy(void){
     
     // Tell the ATTiny that we have finished shutdown and it's safe to power off
     digitalWrite(SHUTDOWN_COMPLETE, 1);
-    MyDelay(1000); // wait for the turn off command
+
+    while (true){ 
+        MyDelay(1000); // wait for the turn off command
+
+#ifndef CORE_TEENSY
+        break;  // exit early in simulator
+#endif
+    }
 }
 
 /**
@@ -1434,16 +1441,16 @@ FASTRUN void loop(void){
     // Check for signal to begin shutdown and perform shutdown routine if requested
     if (digitalRead(BEGIN_TEENSY_SHUTDOWN)) ShutdownTeensy();
 
-    // Step 1: Check for new events and handle them
-    ProcessKey1Debounce();
-    ProcessPTTDebounce();
-    CheckForFrontPanelInterrupts();
-    CheckForCATSerialEvents();
-    ConsumeInterrupt();
-    
-    // Step 2: Perform signal processing
-    PerformSignalProcessing();
+        // Step 1: Check for new events and handle them
+        ProcessKey1Debounce();
+        ProcessPTTDebounce();
+        CheckForFrontPanelInterrupts();
+        CheckForCATSerialEvents();
+        ConsumeInterrupt();
 
-    // Step 3: Draw the display
-    DrawDisplay();
+        // Step 2: Perform signal processing
+        PerformSignalProcessing();
+
+        // Step 3: Draw the display
+        DrawDisplay();
 }
