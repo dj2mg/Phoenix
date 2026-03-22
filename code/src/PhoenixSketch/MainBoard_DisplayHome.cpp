@@ -1282,12 +1282,21 @@ void UpdateAGCSetting(void){
 static int32_t oldFreqIncrement = 0;
 static int64_t oldStepFineTune = 0;
 
+void FormatFrequencyIncrement(int32_t freqIncrement, char valueText[]) {
+    if (freqIncrement < 1000)
+        sprintf(valueText, "%ld", ED.freqIncrement);
+    else if (freqIncrement < 1000000)
+        sprintf(valueText, "%ldk", ED.freqIncrement / 1000);
+    else
+        sprintf(valueText, "%ldM", ED.freqIncrement / 1000000);
+}
+
 void UpdateIncrementSetting(void) {
     if ((oldFreqIncrement != ED.freqIncrement) || (PaneSettings.stale)){
         tft.setFontDefault();
         tft.setFontScale((enum RA8875tsize)0);
         char valueText[8];
-        sprintf(valueText,"%ld",ED.freqIncrement);
+        FormatFrequencyIncrement(ED.freqIncrement, valueText);
         UpdateSetting(tft.getFontWidth(), tft.getFontHeight(), column1x,
                     (char *)"Tune Inc:", 9,
                     valueText, 7,
