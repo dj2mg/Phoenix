@@ -505,6 +505,8 @@ void setup(void){
     pinMode(28,OUTPUT); //testcode
     Flag(0);
     
+    AdjustRtcToUtc();
+
     Serial.println("...Initializing storage");
     InitializeStorage();
 

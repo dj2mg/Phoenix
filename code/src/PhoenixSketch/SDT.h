@@ -663,6 +663,7 @@ struct AGCConfig {
 #include "BPFBoard.h"
 #include "CAT.h"
 #include "Storage.h"
+#include "Custom.h"
 
 // Globally-visible variables. Can we get rid of these entirely?
 extern struct BIT bit_results;
