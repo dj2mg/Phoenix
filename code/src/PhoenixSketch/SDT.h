@@ -321,6 +321,7 @@ struct BIT {
     bool V12_LPF_I2C_present;
     bool V12_LPF_AD7991_present;
     bool FRONT_PANEL_I2C_present;
+    bool RXSW_I2C_present;
     uint8_t AD7991_I2C_ADDR;
 };
 

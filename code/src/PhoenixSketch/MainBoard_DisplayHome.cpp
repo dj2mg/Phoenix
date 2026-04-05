@@ -1526,11 +1526,12 @@ void UpdateAntennaSetting(void){
         return;
     oldAntennaSelection = ED.antennaSelection[ED.currentBand[ED.activeVFO]];
     tft.setFontScale((enum RA8875tsize)0);
+    const auto antennaIndex = ED.antennaSelection[ED.currentBand[ED.activeVFO]];
     char valueText[2];
     sprintf(valueText,"%ld",ED.antennaSelection[ED.currentBand[ED.activeVFO]]);
     UpdateSetting(tft.getFontWidth(), tft.getFontHeight(), column1x,
         (char *)"Antenna:", 8,
-        valueText, 2,
+        antennaName[antennaIndex], strlen(antennaName[antennaIndex]),
         PaneSettings.height/5 + 4*tft.getFontHeight() + 1,true,true);
 }
 

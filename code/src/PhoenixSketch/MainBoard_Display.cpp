@@ -165,7 +165,25 @@ void DrawBIT(void){
         }
         yoff += 30;
 
-        #ifdef V12_LPF_SWR_AD7991
+        tft.setCursor(5 * tft.getFontWidth(), WINDOW_HEIGHT / 10 + yoff);
+        if (!bit_results.V12_LPF_I2C_present) {
+            tft.setTextColor(RA8875_RED);
+            sprintf(tmpbuf, "RXSW MCP23008 I2C not found at 0x%02X", RXSW_MCP23008_ADDR);
+            tft.print(tmpbuf);
+        }
+        else {
+            tft.setTextColor(RA8875_GREEN);
+            tft.setCursor(6 * tft.getFontWidth(), WINDOW_HEIGHT / 10 + yoff);
+            tft.print("RXSW MCP23008 I2C:");
+            sprintf(tmpbuf, "0x%02X", RXSW_MCP23008_ADDR);
+            tft.setCursor(col1, WINDOW_HEIGHT / 10 + yoff);
+            tft.print(tmpbuf);
+            tft.setCursor(col2, WINDOW_HEIGHT / 10 + yoff);
+            tft.print("PASS");
+        }
+        yoff += 30;
+
+#ifdef V12_LPF_SWR_AD7991
         tft.setCursor(5 * tft.getFontWidth(), WINDOW_HEIGHT/10 + yoff);
         if (!bit_results.V12_LPF_AD7991_present) {
             tft.setTextColor(RA8875_RED);

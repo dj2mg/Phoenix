@@ -1,5 +1,8 @@
 #include "SDT.h"
 
+#include <Adafruit_MCP23X08.h>
+
+#pragma region RTC clock
 static time_t getBuildTime(void) {
     struct tm tm = { 0 };
     char month[4];
@@ -63,4 +66,105 @@ void AdjustRtcToUtc(void) {
 
     setTime(utc);
 }
+#pragma endregion
+
+#pragma region Rx switch board
+
+// Define GP bits
+#define INPUT_RX1   0x0001
+#define INPUT_RX2   0x0002
+#define INPUT_TX    0x0004
+#define ENABLE_VLF  0x0080
+
+#define RXSW_HARDWARE_MASK  0x000F
+
+static Adafruit_MCP23X08 mcpRXSW; // connected to Wire2
+static uint8_t rxswAntenna = 0;
+static uint8_t rxswVlfEnable = 0;
+
+/* Antenna names must have same length */
+char* antennaName[ANTENNA_COUNT] = { "TX ", "RX1", "RX2" };
+
+static void UpdateRXSWBoard(void);
+
+/**
+ * Set up connection to the Rx switch via the BANDS connector on Wire2
+ */
+errno_t InitializeRXSWBoard(void) {
+    errno_t result;
+    if (mcpRXSW.begin_I2C(RXSW_MCP23008_ADDR, &Wire2)) {
+        bit_results.RXSW_I2C_present = true;
+        Debug("Initializing RXSW board");
+        mcpRXSW.enableAddrPins();
+        // Set all pins to be outputs
+        for (int i = 0; i < 8; i++) {
+            mcpRXSW.pinMode(i, OUTPUT);
+        }
+        result = ESUCCESS;
+    }
+    else {
+        bit_results.RXSW_I2C_present = false;
+        Debug("RXSW MCP23008 not found at 0x" + String(RXSW_MCP23008_ADDR, HEX));
+        result = ENOI2C;
+    }
+
+    UpdateRXSWBoard();
+
+    return result;
+}
+
+void UpdateRXSWBoard(void) {
+    uint8_t gpioBits = 0;
+
+    switch (rxswAntenna) {
+    case 1:
+        gpioBits |= INPUT_RX1;
+        break;
+    case 2:
+        gpioBits |= INPUT_RX2;
+        break;
+    default:
+        gpioBits |= INPUT_TX;
+        break;
+    }
+
+    uint64_t hardwareBits = gpioBits;
+
+    if (rxswVlfEnable) {
+        gpioBits |= ENABLE_VLF;
+        hardwareBits |= ENABLE_VLF >> 4;
+    }
+
+    hardwareRegister = (hardwareRegister & ~((uint64_t)RXSW_HARDWARE_MASK << RXSW0BIT)) | (hardwareBits << RXSW0BIT);
+    buffer_add();
+
+    if (bit_results.RXSW_I2C_present)
+        mcpRXSW.writeGPIO(gpioBits);
+}
+
+void SelectRxInput(int8_t band, uint8_t antenna) {
+    uint8_t vlfEnable = band == BAND_10M;
+
+    bool update = false;
+    if (vlfEnable != rxswVlfEnable) {
+        Serial.print("Updating VLF: ");
+        Serial.println(vlfEnable);
+        update = true;
+    }
+
+    if (antenna != rxswAntenna) {
+        Serial.print("Updating RX antenna: ");
+        Serial.println(antenna);
+        update = true;
+    }
+
+    if (update) {
+        rxswAntenna = antenna;
+        rxswVlfEnable = vlfEnable;
+
+        UpdateRXSWBoard();
+    }
+}
+
+#pragma endregion
 

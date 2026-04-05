@@ -110,6 +110,7 @@ errno_t InitializeRFBoard(void){
  * Top-level initialization function that initializes:
  * - LPF Board (low-pass RXfilters)
  * - BPF Board (band-pass RXfilters)
+ * - RXSW Board (RX input control)
  * - RF Board (VFOs, attenuators, TX/RX switching)
  *
  * This function should be called once during system startup before
@@ -120,6 +121,7 @@ errno_t InitializeRFBoard(void){
 errno_t InitializeRFHardware(void){
     errno_t val = InitializeLPFBoard();
     val += InitializeBPFBoard();
+    val += InitializeRXSWBoard();
     val += InitializeRFBoard();
     return val;
 }
@@ -628,6 +630,7 @@ void HandleTuneState(TuneState tuneState){
     SelectLPFBand(ED.currentBand[ED.activeVFO]);
     SelectBPFBand(ED.currentBand[ED.activeVFO]);
     SelectAntenna(ED.antennaSelection[ED.currentBand[ED.activeVFO]]);
+    SelectRxInput(ED.currentBand[ED.activeVFO], ED.antennaSelection[ED.currentBand[ED.activeVFO]]);
     UpdateFIRFilterMask(&RXfilters);
     switch (tuneState){
         case TuneReceive:{

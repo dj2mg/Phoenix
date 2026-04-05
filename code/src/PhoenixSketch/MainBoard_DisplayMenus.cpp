@@ -247,7 +247,7 @@ VariableParameter txAttenCW = {
 VariableParameter antenna = {
     .variable = NULL,
     .type = TYPE_I32,
-    .limits = {.i32 = {.min = 0, .max=3, .step=1}}
+    .limits = {.i32 = {.min = 0, .max=ANTENNA_COUNT-1, .step=1}}
 };
 
 /**
