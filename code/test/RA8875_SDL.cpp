@@ -593,14 +593,19 @@ static void update_register_panel() {
 
     y += line_height;
 
+    // BPF      10
+    // RXATT    55  -> 50
+    // TXATT    115
+    // 
     // Row 2: Section labels with bit ranges and individual bit names
     draw_register_string(10, y, "BPF", label_color);
-    draw_register_string(55, y, "RXATT", label_color);
-    draw_register_string(115, y, "TXATT", label_color);
+    draw_register_string(55 - 3, y, "RXATT", label_color);
+    draw_register_string(115 - 10, y, "TXATT", label_color);
+    draw_register_string(115 + 44, y, "RXSW", label_color);
     // RF bit labels: TXVFO(32) RXVFO(15), CWVFO(14), CAL(13), MODE(12), CW(11), RXTX(10)
-    draw_register_string(192, y, "TV RV CV CA MO CW RT", label_color);
+    draw_register_string(192 + 5, y, "TV RV CV CA MO CW RT", label_color);
     // LPF bit labels: RXBPF(9), TXBPF(8), PA100W(7), XVTR(6), ANT1(5), ANT0(4), LPFBAND[3:0]
-    draw_register_string(366, y, "RB TB PA XV A1 A0  LPF", label_color);
+    draw_register_string(366 + 5, y, "RB TB PA XV A1 A0  LPF", label_color);
 
     y += line_height;
 
@@ -613,7 +618,7 @@ static void update_register_panel() {
         draw_register_char(x_pos, y, (hardwareRegister & (1UL << bit)) ? '1' : '0', color);
         x_pos += 8;
     }
-    x_pos += 12;  // gap to align with RXATT label
+    x_pos += 12 - 2;  // gap to align with RXATT label
 
     // RXATT[27:22] - 6 bits
     for (int bit = 27; bit >= 22; bit--) {
@@ -621,7 +626,7 @@ static void update_register_panel() {
         draw_register_char(x_pos, y, (hardwareRegister & (1UL << bit)) ? '1' : '0', color);
         x_pos += 8;
     }
-    x_pos += 12;
+    x_pos += 12 - 7;
 
     // TXATT[21:16] - 6 bits
     for (int bit = 21; bit >= 16; bit--) {
@@ -629,7 +634,15 @@ static void update_register_panel() {
         draw_register_char(x_pos, y, (hardwareRegister & (1UL << bit)) ? '1' : '0', color);
         x_pos += 8;
     }
-    x_pos += 30;
+    x_pos += 6;
+
+    // RXSW[RXSW3BIT:RXSW0BIT] - 4 bits
+    for (int bit = RXSW3BIT; bit >= RXSW0BIT; bit--) {
+        uint32_t color = (hardwareRegister & (1UL << bit)) ? on_color : off_color;
+        draw_register_char(x_pos, y, (hardwareRegister & (1UL << bit)) ? '1' : '0', color);
+        x_pos += 8;
+    }
+    x_pos += 30 - 20;
 
     // TXVFO bit which is off on its own boo hoo
     uint32_t color = (hardwareRegister & (1UL << 32)) ? on_color : off_color;
@@ -653,6 +666,8 @@ static void update_register_panel() {
         x_pos += 8;
         x_pos += 16;  // extra spacing to align with labels
     }
+    x_pos -= 6;
+
     // LPFBAND[3:0] - 4 bits grouped together
     x_pos += 8;
     for (int bit = 3; bit >= 0; bit--) {
