@@ -83,7 +83,7 @@ static uint8_t rxswAntenna = 0;
 static uint8_t rxswVlfEnable = 0;
 
 /* Antenna names must have same length */
-char* antennaName[ANTENNA_COUNT] = { "TX ", "RX1", "RX2" };
+char* antennaName[4] = { "TX ", "RX1", "RX2", "n/a" };
 
 static void UpdateRXSWBoard(void);
 
