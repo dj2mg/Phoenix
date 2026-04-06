@@ -1,6 +1,6 @@
 #include <gtest/gtest.h>
-#include "Arduino.h"
-#include "Custom.h"
+
+#include "../src/PhoenixSketch/SDT.h"
 
 time_t CreateTime(int year, int month, int day, int hour) {
 	struct tm t = { };

@@ -134,7 +134,10 @@ target_link_libraries(all_PowerCalibration_tests GTest::gtest_main)
 add_executable(all_ParamSave_tests ParamSave_test.cpp ../src/PhoenixSketch/ParamSave.cpp)
 target_link_libraries(all_ParamSave_tests GTest::gtest_main)
 
-add_executable(all_Custom_tests Custom_test.cpp Arduino_mock.cpp ../src/PhoenixSketch/Custom.cpp)
+add_executable(all_Custom_tests Custom_test.cpp Arduino_mock.cpp ../src/PhoenixSketch/MainBoard_Display.cpp ../src/PhoenixSketch/MainBoard_DisplayHome.cpp ../src/PhoenixSketch/MainBoard_DisplayMenus.cpp ../src/PhoenixSketch/MainBoard_DisplayDFE.cpp ../src/PhoenixSketch/MainBoard_DisplayEqualizer.cpp ../src/PhoenixSketch/MainBoard_DisplayCalibration_Frequency.cpp ../src/PhoenixSketch/MainBoard_DisplayCalibration_RXIQ.cpp ../src/PhoenixSketch/ReceiveIQCalSm.cpp ../src/PhoenixSketch/TransmitIQCalSm.cpp ../src/PhoenixSketch/TransmitCarrierCalSm.cpp ../src/PhoenixSketch/MainBoard_DisplayCalibration_Power.cpp ../src/PhoenixSketch/PowerCalSm.cpp ../src/PhoenixSketch/MainBoard_DisplayCalibration_TXIQ.cpp ../src/PhoenixSketch/Loop.cpp ../src/PhoenixSketch/Tune.cpp ../src/PhoenixSketch/Mode.cpp ../src/PhoenixSketch/ModeSm.cpp ../src/PhoenixSketch/HardwareSm.cpp ../src/PhoenixSketch/HardwareSm_PowerCalibration.cpp ../src/PhoenixSketch/HardwareSm_ReceiveIQCalibration.cpp ../src/PhoenixSketch/HardwareSm_TransmitIQCalibration.cpp ../src/PhoenixSketch/HardwareSm_TransmitCarrierCalibration.cpp
+  ../src/PhoenixSketch/UISm.cpp ../src/PhoenixSketch/RFBoard.cpp ../src/PhoenixSketch/DSP.cpp ../src/PhoenixSketch/CAT.cpp ../src/PhoenixSketch/BPFBoard.cpp ../src/PhoenixSketch/Storage.cpp
+  ../src/PhoenixSketch/DSP_FFT.cpp DSP_FFT_stub_test.cpp ../src/PhoenixSketch/Globals.cpp arm_functions.c ../src/PhoenixSketch/DSP_FIR.cpp ../src/PhoenixSketch/DSP_Noise.cpp ../src/PhoenixSketch/DSP_CWProcessing.cpp
+  ../src/PhoenixSketch/MainBoard_AudioIO.cpp ../src/PhoenixSketch/LPFBoard.cpp ../src/PhoenixSketch/LPFBoard_AD7991.cpp ../src/PhoenixSketch/FrontPanel.cpp ../src/PhoenixSketch/FrontPanel_Rotary.cpp ../src/PhoenixSketch/ParamSave.cpp si5351_mock.cpp Arduino_mock.cpp Adafruit_I2CDevice_mock.cpp OpenAudio_ArduinoLibrary_mock.cpp RA8875_mock.cpp LittleFS_mock.cpp ArduinoJson.cpp ../src/PhoenixSketch/Custom.cpp)
 target_link_libraries(all_Custom_tests GTest::gtest_main)
 
 include(GoogleTest)
