@@ -169,7 +169,7 @@ void DrawBIT(void){
         yoff += 30;
 
         tft.setCursor(5 * tft.getFontWidth(), WINDOW_HEIGHT / 10 + yoff);
-        if (!bit_results.V12_LPF_I2C_present) {
+        if (!bit_results.RXSW_I2C_present) {
             tft.setTextColor(RA8875_RED);
             sprintf(tmpbuf, "RXSW MCP23008 I2C not found at 0x%02X", RXSW_MCP23008_ADDR);
             tft.print(tmpbuf);
