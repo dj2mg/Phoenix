@@ -130,11 +130,6 @@ void CalcPSD512(float32_t *I, float32_t *Q)
     // apply spectrum AGC
     float32_t LPFcoeff = 0.7;
     for (size_t x = 0; x < SPECTRUM_RES; x++) {
-        // get rid of the nans that sometimes appear at boot
-        // TODO: figure out why they appear
-        if (isnan(FFT_spec_old[x])){
-            FFT_spec_old[x] = -3.0; // assume a very low power
-        }
         FFT_spec[x] = LPFcoeff * FFT_spec[x] + (1-LPFcoeff) * FFT_spec_old[x];
         FFT_spec_old[x] = FFT_spec[x];
     }
@@ -143,8 +138,6 @@ void CalcPSD512(float32_t *I, float32_t *Q)
     for (size_t i = 0; i < SPECTRUM_RES; i++) {
         psdnew[i] = log10f_fast(FFT_spec[i]);
     }
-    // this bin is always nan for some reason
-    //psdnew[170] = (psdnew[170-1]+psdnew[170+1])/2; 
     psdupdated = true;
 }
 

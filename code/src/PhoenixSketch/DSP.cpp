@@ -741,6 +741,7 @@ void PlayBuffer(DataBlock *data){
  * 1) Configure the RXfilters
  * 2) Configure the AGC
  * 3) Configure the noise reduction
+ * 4) Set all arrays in DMAMEM to zero before using them
  */
 void InitializeSignalProcessing(void){
     InitializeFilters(ED.spectrum_zoom,&RXfilters);
@@ -752,6 +753,7 @@ void InitializeSignalProcessing(void){
     InitializeXanrNoiseReduction();
     InitializeSpectralNoiseReduction();
     InitializeCWProcessing(ED.currentWPM, &RXfilters);
+    ResetPSD();
 }
 
 /**
