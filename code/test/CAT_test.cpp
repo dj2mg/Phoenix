@@ -43,7 +43,7 @@ void ShutdownTeensy(void);
 // External variables needed for testing
 extern struct config_t ED;
 extern const struct SR_Descriptor SR[];
-extern uint8_t SampleRate;
+extern uint8_t& SampleRate;
 extern struct band bands[];
 
 TEST(CAT, ChangeBandUp){

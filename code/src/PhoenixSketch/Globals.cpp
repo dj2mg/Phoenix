@@ -103,7 +103,10 @@ ReceiveFilterConfig RXTXfilters;
 ReceiveFilterConfig TXIQfilters;
 TransmitFilterConfig TXfilters;
 AGCConfig agc;
-uint8_t SampleRate = SAMPLE_RATE_192K;
+// SampleRate is a reference to the persisted ED.sampleRate so that the many
+// SR[SampleRate] call sites keep working while the value lives in (and is saved
+// with) the ED config struct. ED is defined above, so it is constructed first.
+uint8_t& SampleRate = ED.sampleRate;
 
 const float32_t CWToneOffsetsHz[] = {400, 562.5, 656.5, 750.0, 843.75 };
 

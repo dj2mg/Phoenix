@@ -11,6 +11,7 @@
 
 typedef float float32_t;
 #define AudioInterrupts()
+#define AudioNoInterrupts()
 #define DMAMEM
 #define FASTRUN
 #define DEC 10

@@ -486,11 +486,74 @@ void InitializeAudio(void){
     MuteMixerChannels(&modeSelectOutL); // sidetone
     MuteMixerChannels(&modeSelectOutR); // sidetone
     sidetone_oscillator.amplitude(ED.sidetoneVolume / 500);
-    sidetone_oscillator.frequency(SIDETONE_FREQUENCY*AUDIO_SAMPLE_RATE_EXACT/SR[SampleRate].rate);
 
     // The transmit IQ cal oscillator. Only used during the TXIQ calibration state
     transmitIQcal_oscillator.amplitude(40.0/500);
+
+    // Set the oscillator frequencies for the current sample rate
+    UpdateSampleRateDependentOscillators();
+}
+
+/**
+ * Set the frequencies of the synthesized oscillators that are specified relative
+ * to the audio sample rate. These must be recomputed whenever the sample rate
+ * changes so that the sidetone and TX IQ calibration tones stay at the correct
+ * audible frequency.
+ */
+void UpdateSampleRateDependentOscillators(void){
+    sidetone_oscillator.frequency(SIDETONE_FREQUENCY*AUDIO_SAMPLE_RATE_EXACT/SR[SampleRate].rate);
     transmitIQcal_oscillator.frequency(800.0f*AUDIO_SAMPLE_RATE_EXACT/SR[SampleRate].rate);
+}
+
+/**
+ * Change the radio's audio sample rate at run time.
+ *
+ * Reconfigures the I2S clock, rebuilds the sample-rate-dependent DSP filters and
+ * oscillators, and flushes the audio input queues so that stale samples captured
+ * at the old rate are not processed at the new rate. Safe to call from the main
+ * loop (e.g. from a menu selection); it briefly disables audio interrupts while
+ * the queues are flushed. Does nothing if the requested rate is already active.
+ *
+ * @param newRate Sample-rate selector index (e.g. SAMPLE_RATE_192K, SAMPLE_RATE_176K)
+ */
+void ChangeSampleRate(uint8_t newRate){
+    if (newRate == SampleRate)
+        return; // already at this rate, nothing to do
+
+    // Compensate the tuning for the change in the Fs/4 IF offset so the dial
+    // (receive) frequency stays constant across the rate change. The RX VFO is
+    // programmed to centerFreq_Hz and the receive DSP shifts by +Fs/4, so the
+    // received frequency is centerFreq_Hz - Fs/4. Shift centerFreq_Hz by the
+    // change in Fs/4 to hold (centerFreq_Hz - Fs/4) constant. Apply to both VFOs
+    // so a later VFO switch is also correct. Must be computed before SampleRate
+    // is updated so SR[SampleRate] still refers to the old rate.
+    int32_t dQuarter_Hz = (int32_t)(SR[newRate].rate / 4) - (int32_t)(SR[SampleRate].rate / 4);
+    for (int v = 0; v < 2; v++)
+        ED.centerFreq_Hz[v] += dQuarter_Hz;
+
+    AudioNoInterrupts();
+    SampleRate = newRate;
+    // Reconfigure the I2S peripheral clock to the new rate
+    SetI2SFreq(SR[SampleRate].rate);
+    // Rebuild the DSP filter chain, AGC and CW processing for the new rate. The
+    // decimation filters are re-allocated here; InitializeDecimationFilter frees
+    // the previous allocations so this does not leak on repeated changes.
+    InitializeSignalProcessing();
+    // Keep the sidetone / cal oscillators at the correct audible frequency
+    UpdateSampleRateDependentOscillators();
+    // Discard samples that were captured at the old rate
+    Q_in_L.clear();
+    Q_in_R.clear();
+    Q_in_L_Ex.clear();
+    Q_in_R_Ex.clear();
+    AudioInterrupts();
+
+    // Re-program the RX VFO (Si5351) for the compensated center frequency so the
+    // radio stays tuned to the same dial frequency. Done outside the audio-
+    // interrupt-disabled section because it performs I2C transactions.
+    UpdateTuneState();
+
+    Debug("Sample rate changed to " + String(SR[SampleRate].rate) + " Hz");
 }
 
 /**

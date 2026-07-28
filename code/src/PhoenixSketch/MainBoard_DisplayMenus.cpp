@@ -577,9 +577,29 @@ struct SecondaryMenuOption DiagnosticOptions[3] = {
     "Buffer print", functionOption, NULL, (void *)buffer_pretty_print_last_entry, NULL,
 };
 
+// Sample Rate Menu
+/**
+ * Menu callback to run the radio at 192 ksps. Changes the sample rate at run time.
+ */
+void SelectSampleRate192(void){
+    ChangeSampleRate(SAMPLE_RATE_192K);
+}
+
+/**
+ * Menu callback to run the radio at 176.4 ksps. Changes the sample rate at run time.
+ */
+void SelectSampleRate176(void){
+    ChangeSampleRate(SAMPLE_RATE_176K);
+}
+
+struct SecondaryMenuOption SampleRateOptions[2] = {
+    "192 ksps", functionOption, NULL, (void *)SelectSampleRate192, NULL,
+    "176.4 ksps", functionOption, NULL, (void *)SelectSampleRate176, NULL,
+};
+
 
 // Primary menu structure
-struct PrimaryMenuOption primaryMenu[8] = {
+struct PrimaryMenuOption primaryMenu[9] = {
     "RF Options", RFSet, sizeof(RFSet)/sizeof(RFSet[0]),
     "CW Options", CWOptions, sizeof(CWOptions)/sizeof(CWOptions[0]),
     "Microphone", MicOptions, sizeof(MicOptions)/sizeof(MicOptions[0]),
@@ -588,6 +608,7 @@ struct PrimaryMenuOption primaryMenu[8] = {
     "EEPROM", EEPROMOptions, sizeof(EEPROMOptions)/sizeof(EEPROMOptions[0]),
     "Calibration", CalOptions, sizeof(CalOptions)/sizeof(CalOptions[0]),
     "Diagnostics", DiagnosticOptions, sizeof(DiagnosticOptions)/sizeof(DiagnosticOptions[0]),
+    "Sample Rate", SampleRateOptions, sizeof(SampleRateOptions)/sizeof(SampleRateOptions[0]),
 };
 
 /**

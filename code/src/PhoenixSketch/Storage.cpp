@@ -66,6 +66,7 @@ void SaveDataToStorage(bool savetosd){
         doc["spectrumNoiseFloor"][i] = ED.spectrumNoiseFloor[i];
     }
     doc["spectrum_zoom"] = ED.spectrum_zoom;
+    doc["sampleRate"] = ED.sampleRate;
     doc["CWFilterIndex"] = ED.CWFilterIndex;
     doc["CWToneIndex"] = ED.CWToneIndex;
     doc["decoderFlag"] = ED.decoderFlag;
@@ -274,6 +275,7 @@ void RestoreDataFromStorage(void){
         }
     }
     ED.spectrum_zoom = doc["spectrum_zoom"] | ED.spectrum_zoom;
+    ED.sampleRate = doc["sampleRate"] | ED.sampleRate;
     ED.CWFilterIndex = doc["CWFilterIndex"] | ED.CWFilterIndex;
     ED.CWToneIndex = doc["CWToneIndex"] | ED.CWToneIndex;
     ED.decoderFlag = doc["decoderFlag"] | ED.decoderFlag;
@@ -499,6 +501,7 @@ void RestoreDataFromSDCard(void){
         }
     }
     ED.spectrum_zoom = doc["spectrum_zoom"] | ED.spectrum_zoom;
+    ED.sampleRate = doc["sampleRate"] | ED.sampleRate;
     ED.CWFilterIndex = doc["CWFilterIndex"] | ED.CWFilterIndex;
     ED.CWToneIndex = doc["CWToneIndex"] | ED.CWToneIndex;
     ED.decoderFlag = doc["decoderFlag"] | ED.decoderFlag;
@@ -695,6 +698,7 @@ void PrintEDToSerial(void){
     }
     Serial.println();
     Serial.print("spectrum_zoom:     "); Serial.println(ED.spectrum_zoom);
+    Serial.print("sampleRate:        "); Serial.println(ED.sampleRate);
     Serial.print("CWFilterIndex:     "); Serial.println(ED.CWFilterIndex);
     Serial.print("CWToneIndex:       "); Serial.println(ED.CWToneIndex);
     Serial.print("decoderFlag:       "); Serial.println(ED.decoderFlag);

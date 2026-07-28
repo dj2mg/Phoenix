@@ -1292,6 +1292,13 @@ void InitializeDecimationFilter(DecimationFilter *filter, float32_t DF, float32_
   filter->n_fstop = ((filter->n_samplerate_Hz / filter->M) - filter->n_desired_BW_Hz) / filter->n_samplerate_Hz;
   filter->n_dec_taps = (1 + (uint16_t)(filter->n_att_dB / (22.0 * (filter->n_fstop - filter->n_fpass))));
 
+  // Free any buffers from a previous initialization so that re-initializing at
+  // run time (e.g. a sample-rate change) does not leak memory. The pointers are
+  // nullptr on first use, and free(nullptr) is a no-op.
+  free(filter->FIR_dec_I_state);
+  free(filter->FIR_dec_Q_state);
+  free(filter->FIR_dec_coeffs);
+
   filter->FIR_dec_I_state = (float32_t*)malloc(sizeof(float32_t) * (filter->n_dec_taps + blockSize - 1));
   filter->FIR_dec_Q_state = (float32_t*)malloc(sizeof(float32_t) * (filter->n_dec_taps + blockSize - 1));
   filter->FIR_dec_coeffs = (float32_t*)malloc(sizeof(float32_t) * filter->n_dec_taps);

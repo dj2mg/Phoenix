@@ -272,6 +272,7 @@ extern struct config_t {
     int16_t spectrumNoiseFloor[NUMBER_OF_BANDS] = {50,50,50,50,50,50,50,50,50,50,50,50,50 }; /** Shift spectrum up/down on display */
     int8_t spectrumFloorAuto = 1;   /** Automatically adjust the spectrum floor */
     uint32_t spectrum_zoom = 1;     /** Zoom level for spectrum */
+    uint8_t sampleRate = SAMPLE_RATE_192K; /** Audio sample rate selector (index into SR[]) */
     int32_t CWFilterIndex = 5;      /** Selects the receive CW audio filter */
     int32_t CWToneIndex = 3;        /** Selects the transmitted CW tone frequency */
     int32_t decoderFlag = 0;        /** CW decoder on/off */
@@ -382,9 +383,9 @@ struct DecimationFilter{
     float32_t n_samplerate_Hz;  /** Samplerate before decimation, Hz */
     float32_t n_att_dB;         /** Attenuation of the stopband, dB */
     float32_t n_desired_BW_Hz;  /** Desired max BW of the filters, Hz */
-    float32_t *FIR_dec_I_state; /** Pointer to the state vector for I decimator FIR filter*/
-    float32_t *FIR_dec_Q_state; /** Pointer to the state vector for Q decimator FIR filter */
-    float32_t *FIR_dec_coeffs;  /** Pointer to the decimator FIR filter coefficients */
+    float32_t *FIR_dec_I_state = nullptr; /** Pointer to the state vector for I decimator FIR filter*/
+    float32_t *FIR_dec_Q_state = nullptr; /** Pointer to the state vector for Q decimator FIR filter */
+    float32_t *FIR_dec_coeffs = nullptr;  /** Pointer to the decimator FIR filter coefficients */
     float32_t n_fpass;          /** FIR filter passband edge */
     float32_t n_fstop;          /** FIR filter stopband edge */
     uint16_t n_dec_taps;        /** Number of taps in FIR filter*/
@@ -711,7 +712,7 @@ extern AudioPlayQueue Q_out_R_Ex;
 
 
 extern const float32_t CWToneOffsetsHz[];
-extern uint8_t SampleRate;
+extern uint8_t& SampleRate;  // reference to ED.sampleRate (persisted); keeps SR[SampleRate] usage working
 
 extern VolumeFunction volumeFunction;
 

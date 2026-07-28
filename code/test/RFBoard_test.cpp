@@ -168,7 +168,7 @@ TEST(RFBoard, AttenuatorRoundingToNearestHalfdB) {
 extern struct config_t ED;
 extern Si5351 si5351;
 extern const struct SR_Descriptor SR[];
-extern uint8_t SampleRate;
+extern uint8_t& SampleRate;
 extern const float32_t CWToneOffsetsHz[];
 extern struct band bands[];
 
