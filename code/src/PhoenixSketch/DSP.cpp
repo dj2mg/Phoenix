@@ -625,7 +625,6 @@ float32_t GetSAMCarrierOffset(void){
  * 
  * @param data Pointer to the DataBlock to act upon
  */
-static float32_t wold = 0;
 void Demodulate(DataBlock *data, ReceiveFilterConfig *RXfilters){
     // Demodulation: our time domain output is a combination of the real part (left channel) 
     // AND the imaginary part (right channel) of the second half of the FFT_buffer
@@ -651,9 +650,10 @@ void Demodulate(DataBlock *data, ReceiveFilterConfig *RXfilters){
           if (isnan(audiotmp)){
             audiotmp = 0.0;
           }
-          w = audiotmp + wold * 0.99f;  // Response to below 200Hz
-          data->I[i] = w - wold;
-          wold = w;
+          // One pole DC blocker, cornered at RXfilters->amDCBlockCorner_Hz.
+          w = audiotmp + RXfilters->amDCBlockState * RXfilters->amDCBlockPole;
+          data->I[i] = w - RXfilters->amDCBlockState;
+          RXfilters->amDCBlockState = w;
         }
         arm_biquad_cascade_df1_f32(&RXfilters->biquadAudioLowPass, data->I, data->Q, data->N);
         arm_copy_f32(data->Q, data->I, data->N);
@@ -742,6 +742,10 @@ void PlayBuffer(DataBlock *data){
  * 2) Configure the AGC
  * 3) Configure the noise reduction
  * 4) Set all arrays in DMAMEM to zero before using them
+ *
+ * InitializeFilters() and InitializeTransmitFilters() regenerate the
+ * sample-rate-dependent coefficient tables as their first step, so calling this
+ * after a rate change is all that is needed to retune the whole chain.
  */
 void InitializeSignalProcessing(void){
     InitializeFilters(ED.spectrum_zoom,&RXfilters);

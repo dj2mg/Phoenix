@@ -981,3 +981,157 @@ TEST(TransmitChain, TransmitReceiveProcessingAppliesGainAndCorrection){
     ED.IQPhaseCorrectionFactor[ED.currentBand[ED.activeVFO]] = originalPhsCorr;
 }
 
+
+// ============================================================================
+// 176.4 kHz transmit-chain stage-response measurement
+// ----------------------------------------------------------------------------
+// The transmit chain is mostly built from anti-alias and anti-image filters
+// whose corners are specified as a fraction of the sample rate. Those scale with
+// Fs by design and need no adjustment. Two stages are different:
+//
+//   * TXInterpolateBy2Again (FIR_int3) is what actually limits the transmit
+//     audio bandwidth, at -3 dB around 2.76 kHz. Left to scale with Fs it would
+//     drop to 2.53 kHz at 176.4 ksps, narrowing the transmitted audio.
+//   * TXDecimateBy2Again (coeffs12K_8K_LPF_FIR) feeds a decimate-by-2, so
+//     anything above a quarter of its input rate folds back into the audio. The
+//     table it used to carry was flat well past that point.
+//
+// Both are now generated from the sample rate. These tests confirm the audio
+// bandwidth holds in Hz across a rate change, and that the decimator stops.
+//
+// Non-destructive: SampleRate is saved and restored, and the filters rebuilt at
+// the original rate.
+// ============================================================================
+
+// Amplitude of one frequency component, by correlating against a complex
+// exponential through a Hann window. Peak picking (getmax) misses the true peak
+// of a sampled sine by up to a decibel when there are few samples per cycle,
+// which is too coarse for comparing corner frequencies across rates.
+static float32_t TXToneAmplitude(const float32_t *signal, uint32_t nSamples,
+                                 float32_t tone_Hz, float32_t fs_Hz){
+    double sumI = 0.0, sumQ = 0.0, windowSum = 0.0;
+    const double w = 2.0 * M_PI * (double)tone_Hz / (double)fs_Hz;
+    for (uint32_t n = 0; n < nSamples; n++){
+        const double hann = 0.5 * (1.0 - cos(2.0 * M_PI * (double)n / (double)(nSamples - 1)));
+        windowSum += hann;
+        sumI += hann * (double)signal[n] * cos(w * (double)n);
+        sumQ += hann * (double)signal[n] * sin(w * (double)n);
+    }
+    if (windowSum == 0.0) return 0.0;
+    return (float32_t)(2.0 * sqrt(sumI * sumI + sumQ * sumQ) / windowSum);
+}
+
+// Gain of the transmit audio path (decimate by 2, Hilbert, interpolate by 2) at
+// one frequency. Runs the real stage functions on 256-sample blocks, which is
+// what TransmitProcessing() feeds them.
+static float32_t TXAudioPathGain(float32_t tone_Hz, float32_t audioFs_Hz){
+    const uint32_t N = 256;
+    float32_t I[N], Q[N];
+    DataBlock data;
+
+    InitializeTransmitFilters(&TXfilters);
+
+    // Several blocks so the FIR delay lines fill before the measurement.
+    for (int block = 0; block < 4; block++){
+        const double w = 2.0 * M_PI * (double)tone_Hz / (double)audioFs_Hz;
+        for (uint32_t n = 0; n < N; n++){
+            I[n] = (float32_t)cos(w * (double)(n + block * N));
+            Q[n] = I[n];
+        }
+        data.I = I;
+        data.Q = Q;
+        data.N = N;
+        data.sampleRate_Hz = audioFs_Hz;
+        TXDecimateBy2Again(&data, &TXfilters);   // 256 in, 128 out
+        HilbertTransform(&data, &TXfilters);     // 128
+        TXInterpolateBy2Again(&data, &TXfilters);// 128 in, 256 out
+    }
+    // TXInterpolateBy2Again applies a gain of 2 to make up for the upsampling.
+    return TXToneAmplitude(data.I, N, tone_Hz, audioFs_Hz) / 2.0f;
+}
+
+// Frequency at which the transmit audio path first falls level_dB below its
+// passband value, by linear interpolation between sweep points.
+static float32_t TXAudioCornerHz(float32_t audioFs_Hz, float32_t level_dB){
+    const float32_t fStart = 300.0f, fStop = 6000.0f, fStep = 20.0f;
+    const float32_t reference = TXAudioPathGain(fStart, audioFs_Hz);
+    const float32_t target = reference * powf(10.0f, level_dB / 20.0f);
+    float32_t prevF = fStart, prevG = reference;
+    for (float32_t f = fStart + fStep; f <= fStop; f += fStep){
+        const float32_t g = TXAudioPathGain(f, audioFs_Hz);
+        if (g <= target){
+            return prevF + (target - prevG) * (f - prevF) / (g - prevG);
+        }
+        prevF = f;
+        prevG = g;
+    }
+    return -1.0f;
+}
+
+TEST(TransmitChain176k, AudioBandwidthHoldsAcrossRates){
+    uint8_t saved_rate = SampleRate;
+
+    SampleRate = SAMPLE_RATE_192K;
+    float32_t fs_192 = (float32_t)SR[SampleRate].rate / RXfilters.DF;
+    float32_t corner_192 = TXAudioCornerHz(fs_192, -3.0f);
+
+    SampleRate = SAMPLE_RATE_176K;
+    float32_t fs_176 = (float32_t)SR[SampleRate].rate / RXfilters.DF;
+    float32_t corner_176 = TXAudioCornerHz(fs_176, -3.0f);
+
+    // Restore before asserting.
+    SampleRate = saved_rate;
+    InitializeTransmitFilters(&TXfilters);
+
+    FILE *f = fopen("176k_transmit_shift_summary.txt", "w");
+    if (f != nullptr){
+        fprintf(f, "stage,type,f_192k_Hz,f_176k_Hz,measured_ratio,expected_ratio\n");
+        fprintf(f, "TX_audio_bandwidth_minus3dB,fs_derived,%.1f,%.1f,%.4f,%.4f\n",
+                corner_192, corner_176, corner_176 / corner_192, 1.0f);
+        fclose(f);
+    }
+
+    ASSERT_GT(corner_192, 0.0f);
+    ASSERT_GT(corner_176, 0.0f);
+
+    // The transmit passband is specified in Hz, so it must not follow the rate.
+    // Before FIR_int3 was generated from Fs this ratio read 176400/192000.
+    EXPECT_NEAR(corner_176 / corner_192, 1.0f, 0.02)
+        << "transmit audio bandwidth moved from " << corner_192 << " Hz to "
+        << corner_176 << " Hz across the rate change";
+
+    // And it should still be about where it has always been.
+    EXPECT_NEAR(corner_192, 2760.0f, 150.0f);
+}
+
+TEST(TransmitChain176k, DecimatorStopsBeforeTheFoldPoint){
+    uint8_t saved_rate = SampleRate;
+    const uint8_t rates[2] = {SAMPLE_RATE_192K, SAMPLE_RATE_176K};
+
+    for (int r = 0; r < 2; r++){
+        SampleRate = rates[r];
+        InitializeTransmitFilters(&TXfilters);
+        const float32_t audioFs = (float32_t)SR[SampleRate].rate / RXfilters.DF;
+
+        // TXDecimateBy2Again halves the rate, so audioFs/4 is where the
+        // stopband has to have taken hold.
+        float32_t sum = 0.0f;
+        for (int i = 0; i < 48; i++) sum += coeffs12K_8K_LPF_FIR[i];
+        EXPECT_NEAR(sum, 1.0f, 0.01f) << "decimator should have unity DC gain";
+
+        // Evaluate the tap set directly at the fold point.
+        double re = 0.0, im = 0.0;
+        const double w = 2.0 * M_PI * 0.25;  // audioFs/4 normalised to audioFs
+        for (int i = 0; i < 48; i++){
+            re += (double)coeffs12K_8K_LPF_FIR[i] * cos(w * i);
+            im -= (double)coeffs12K_8K_LPF_FIR[i] * sin(w * i);
+        }
+        const float32_t atFold_dB = 20.0f * log10f((float32_t)sqrt(re*re + im*im) + 1e-30f);
+        EXPECT_LT(atFold_dB, -60.0f)
+            << "transmit decimator is only " << atFold_dB << " dB down at "
+            << (audioFs / 4.0f) << " Hz, running at " << SR[SampleRate].rate << " sps";
+    }
+
+    SampleRate = saved_rate;
+    InitializeTransmitFilters(&TXfilters);
+}

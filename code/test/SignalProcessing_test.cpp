@@ -2023,14 +2023,16 @@ TEST(SignalProcessing, ReceiveProcessing){
 // 176400/8 = 22.05 kHz) WITHOUT changing any DSP stage, by flipping the global
 // SampleRate selector and re-running the existing per-stage sweep helpers.
 //
-// Two classes of stage exist (see docs/RX_DSP_Chain_Parameters.md):
-//   * Fs-derived  - coefficients are recomputed from SR[SampleRate].rate at
-//                   InitializeFilters() time, so their corner frequencies stay
-//                   fixed in Hz when the sample rate changes.
-//   * Hard-coded  - frozen coefficient tables designed for a fixed rate
-//                   (CW audio filters, CW decode FIR, EQ bands: 24 kHz audio).
-//                   Run at 22.05 kHz instead of 24 kHz, every corner/center
-//                   frequency scales by 176400/192000 = 0.91875.
+// Every stage measured here is now Fs-derived: its coefficients are recomputed
+// from SR[SampleRate].rate at InitializeFilters() time, so its corner and centre
+// frequencies stay fixed in Hz when the sample rate changes.
+//
+// This was not always so. The CW audio filters, the CW decode FIR and the EQ
+// cells used to ship frozen tables designed for 24 kHz audio, and running them
+// at 22.05 kHz scaled every characteristic frequency by 176400/192000 = 0.91875.
+// These tests asserted that shift; they now assert its absence. FilterDesign_test.cpp
+// covers the generated filters in more detail, including a direct comparison
+// against the frozen tables in reference_filters.cpp.
 //
 // These tests are non-destructive: each saves and restores the global
 // SampleRate (and rebuilds the global RXfilters at the original rate) so the
@@ -2038,6 +2040,8 @@ TEST(SignalProcessing, ReceiveProcessing){
 // restore at the end always runs.
 // ============================================================================
 
+// The rate ratio the frozen tables used to shift by. Kept as documentation of
+// what these tests are guarding against.
 static const float32_t RATE_RATIO_176_192 = 176400.0f / 192000.0f; // 0.91875
 
 // Sweep a lowpass-style stage-response helper and return the frequency (Hz)
@@ -2064,7 +2068,7 @@ static float32_t Find176kGainCrossing(void (*resp)(float32_t, DataBlock *, float
     return -1.0f;
 }
 
-// -6 dB (half-amplitude) upper cutoff of a CW audio filter (hard-coded @24kHz).
+// -6 dB (half-amplitude) upper cutoff of a CW audio filter.
 static float32_t CW176kUpperCutoffHz(int bf){
     ED.CWFilterIndex = bf;
     return Find176kGainCrossing(CW_filter_tone, 200.0f, 3600.0f, 10.0f, 0.5f);
@@ -2076,7 +2080,7 @@ static float32_t AM176kCornerHz(){
 }
 
 // Peak (center) frequency of an EQ band, found by argmax of a fine sweep
-// (hard-coded @24kHz).
+// generated for the current sample rate.
 static float32_t EQ176kPeakHz(int bf, float32_t fmin, float32_t fmax, float32_t fstep){
     DataBlock *dummy = nullptr;
     float32_t best_f = fmin, best_g = -1.0f;
@@ -2089,25 +2093,24 @@ static float32_t EQ176kPeakHz(int bf, float32_t fmin, float32_t fmax, float32_t 
 }
 
 // Measure a characteristic frequency of three representative stages at both
-// 192 kHz and 176.4 kHz and confirm the expected behaviour: hard-coded tables
-// scale their corner/center frequency by 176400/192000, while the Fs-derived
-// stage keeps its corner fixed in Hz. Also writes a summary CSV for the record.
-TEST(ReceiveChain176k, HardCodedStagesShiftFsDerivedStay){
+// 192 kHz and 176.4 kHz and confirm that each one keeps that frequency fixed in
+// Hz. Also writes a summary CSV for the record.
+TEST(ReceiveChain176k, AllStagesHoldTheirFrequencies){
     uint8_t saved_rate = SampleRate;
 
-    // --- CW audio filter index 4 ("2.0 kHz"): HARD-CODED (designed @ 24 kHz) --
+    // --- CW audio filter index 4 ("2.0 kHz") ---------------------------------
     SampleRate = SAMPLE_RATE_192K;
     float32_t cw_192 = CW176kUpperCutoffHz(4);
     SampleRate = SAMPLE_RATE_176K;
     float32_t cw_176 = CW176kUpperCutoffHz(4);
 
-    // --- Receive EQ band 13 (fc = 4000 Hz): HARD-CODED (designed @ 24 kHz) ----
+    // --- Receive EQ band 13 (fc = 4000 Hz) -----------------------------------
     SampleRate = SAMPLE_RATE_192K;
     float32_t eq_192 = EQ176kPeakHz(13, 3000.0f, 4600.0f, 5.0f);
     SampleRate = SAMPLE_RATE_176K;
     float32_t eq_176 = EQ176kPeakHz(13, 3000.0f, 4600.0f, 5.0f);
 
-    // --- AM audio lowpass IIR: Fs-DERIVED (control, should not move in Hz) ----
+    // --- AM audio lowpass IIR: the stage that was always Fs-derived ----------
     SampleRate = SAMPLE_RATE_192K;
     float32_t am_192 = AM176kCornerHz();
     SampleRate = SAMPLE_RATE_176K;
@@ -2121,10 +2124,10 @@ TEST(ReceiveChain176k, HardCodedStagesShiftFsDerivedStay){
     FILE *f = fopen("176k_stage_shift_summary.txt", "w");
     if (f != nullptr){
         fprintf(f, "stage,type,f_192k_Hz,f_176k_Hz,measured_ratio,expected_ratio\n");
-        fprintf(f, "CW_audio_filter_2k0_upper_cutoff,hardcoded,%.1f,%.1f,%.4f,%.4f\n",
-                cw_192, cw_176, cw_176 / cw_192, RATE_RATIO_176_192);
-        fprintf(f, "EQ_band13_4000_peak,hardcoded,%.1f,%.1f,%.4f,%.4f\n",
-                eq_192, eq_176, eq_176 / eq_192, RATE_RATIO_176_192);
+        fprintf(f, "CW_audio_filter_2k0_upper_cutoff,fs_derived,%.1f,%.1f,%.4f,%.4f\n",
+                cw_192, cw_176, cw_176 / cw_192, 1.0f);
+        fprintf(f, "EQ_band13_4000_peak,fs_derived,%.1f,%.1f,%.4f,%.4f\n",
+                eq_192, eq_176, eq_176 / eq_192, 1.0f);
         fprintf(f, "AM_audio_lowpass_corner,fs_derived,%.1f,%.1f,%.4f,%.4f\n",
                 am_192, am_176, am_176 / am_192, 1.0f);
         fclose(f);
@@ -2135,15 +2138,22 @@ TEST(ReceiveChain176k, HardCodedStagesShiftFsDerivedStay){
     ASSERT_GT(eq_192, 0.0f); ASSERT_GT(eq_176, 0.0f);
     ASSERT_GT(am_192, 0.0f); ASSERT_GT(am_176, 0.0f);
 
-    // Hard-coded tables: characteristic frequency scales with the rate ratio.
-    EXPECT_NEAR(cw_176 / cw_192, RATE_RATIO_176_192, 0.03)
-        << "CW audio filter cutoff should scale by 176400/192000 (table designed @ 24 kHz)";
-    EXPECT_NEAR(eq_176 / eq_192, RATE_RATIO_176_192, 0.03)
-        << "EQ band center should scale by 176400/192000 (table designed @ 24 kHz)";
-
-    // Fs-derived stage: corner stays fixed in Hz (ratio ~ 1).
+    // All three stages are generated from Fs, so their characteristic
+    // frequencies stay put. Each of these used to read RATE_RATIO_176_192.
+    EXPECT_NEAR(cw_176 / cw_192, 1.0f, 0.03)
+        << "CW audio filter cutoff moved from " << cw_192 << " Hz to " << cw_176
+        << " Hz; the Chebyshev design should be regenerated for the new rate";
+    EXPECT_NEAR(eq_176 / eq_192, 1.0f, 0.03)
+        << "EQ band centre moved from " << eq_192 << " Hz to " << eq_176
+        << " Hz; the cell prototype should be rebilineared for the new rate";
     EXPECT_NEAR(am_176 / am_192, 1.0f, 0.03)
         << "AM audio lowpass corner should stay constant in Hz (recomputed from Fs)";
+
+    // Guard against a regression to the old behaviour specifically.
+    EXPECT_GT(cw_176 / cw_192, RATE_RATIO_176_192 + 0.03)
+        << "CW audio filter is still tracking the sample rate ratio";
+    EXPECT_GT(eq_176 / eq_192, RATE_RATIO_176_192 + 0.03)
+        << "EQ band is still tracking the sample rate ratio";
 }
 
 // Dump full stage-response sweeps at 176.4 kHz to "176k_*.txt" files, in the
@@ -2157,7 +2167,7 @@ TEST(ReceiveChain176k, StageResponseDump){
     DataBlock *dout = nullptr;
     char strbuf[64];
 
-    // CW audio filters (hard-coded @ 24 kHz): 5 selectable bandwidths.
+    // CW audio filters: 5 selectable bandwidths.
     {
         float32_t fmin = 100.0f, fmax = 6000.0f;
         uint32_t Npoints = 201;
@@ -2174,7 +2184,7 @@ TEST(ReceiveChain176k, StageResponseDump){
         }
     }
 
-    // Receive EQ bands (hard-coded @ 24 kHz): 14 graphic-EQ cells.
+    // Receive EQ bands: 14 graphic-EQ cells.
     {
         float32_t fmin = 100.0f, fmax = 8000.0f;
         uint32_t Npoints = 401;

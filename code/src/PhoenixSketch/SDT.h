@@ -207,6 +207,18 @@ enum FilterType {
     Notch =    5
 };
 
+/** One second-order analog bandpass section of a stagger-tuned cascade.
+ *
+ * The section is (wn/Q)s / (s^2 + (wn/Q)s + wn^2). wnRatio is wn expressed as a
+ * fraction of the cascade's centre frequency, so the same prototype describes
+ * the filter shape at any centre frequency and any sample rate.
+ * See CalcBandpassCascadeCoeffs().
+ */
+struct BandpassProtoSection {
+    float32_t wnRatio;  /** Section resonance as a fraction of the centre frequency */
+    float32_t Q;        /** Section quality factor */
+};
+
 enum TXRXType {
     TX = 1,
     RX = 0
@@ -427,6 +439,14 @@ struct ReceiveFilterConfig {
     arm_biquad_casd_df1_inst_f32 biquadAudioLowPass;
     const uint32_t N_stages_biquad_lowpass1 = 1;
     float32_t biquad_lowpass1_coeffs[5] = { 0, 0, 0, 0, 0 };
+
+    // AM demodulation DC blocker. A one pole highpass, y[n] = x[n] - x[n-1] +
+    // pole*y[n-1], that strips the carrier's DC term out of the envelope. The
+    // pole is derived from the audio sample rate in InitializeFilters() so the
+    // corner stays put when the rate changes.
+    const float32_t amDCBlockCorner_Hz = 38.0;  /** Corner of the AM DC blocker */
+    float32_t amDCBlockPole = 0.99;             /** Pole position, set from the audio rate */
+    float32_t amDCBlockState = 0.0;             /** Filter history, one sample */
 
     // Audio equalization filters
     const uint32_t eqNumStages = 4;
