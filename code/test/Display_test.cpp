@@ -1421,13 +1421,14 @@ TEST_F(DisplayTest, CWOptionsMenu_SidetoneVolume_Configuration) {
     EXPECT_EQ(CWOptions[5].action, variableOption);
     EXPECT_EQ(CWOptions[5].varPam, &stv);
     EXPECT_EQ(CWOptions[5].func, nullptr);
-    EXPECT_EQ(CWOptions[5].postUpdateFunc, nullptr);
+    // Changing the volume has to re-apply the gain to the sidetone oscillator
+    EXPECT_EQ(CWOptions[5].postUpdateFunc, (void *)UpdateSidetoneOscillator);
 
     // Verify variable parameter configuration
     EXPECT_EQ(stv.type, TYPE_F32);
     EXPECT_FLOAT_EQ(stv.limits.f32.min, 0.0f);
-    EXPECT_FLOAT_EQ(stv.limits.f32.max, 100.0f);
-    EXPECT_FLOAT_EQ(stv.limits.f32.step, 0.5f);
+    EXPECT_FLOAT_EQ(stv.limits.f32.max, 500.0f);
+    EXPECT_FLOAT_EQ(stv.limits.f32.step, 1.0f);
 }
 
 /**
@@ -1444,21 +1445,21 @@ TEST_F(DisplayTest, CWOptionsMenu_SidetoneVolume_IncrementDecrement) {
 
     // Increment volume
     IncrementVariable(&stv);
-    EXPECT_FLOAT_EQ(ED.sidetoneVolume, 50.5f);
+    EXPECT_FLOAT_EQ(ED.sidetoneVolume, 51.0f);
 
     // Decrement volume
     DecrementVariable(&stv);
     EXPECT_FLOAT_EQ(ED.sidetoneVolume, 50.0f);
 
     // Test max boundary
-    ED.sidetoneVolume = 99.8f;
+    ED.sidetoneVolume = 499.0f;
     IncrementVariable(&stv);
-    EXPECT_FLOAT_EQ(ED.sidetoneVolume, 100.0f);
+    EXPECT_FLOAT_EQ(ED.sidetoneVolume, 500.0f);
     IncrementVariable(&stv);
-    EXPECT_FLOAT_EQ(ED.sidetoneVolume, 100.0f);
+    EXPECT_FLOAT_EQ(ED.sidetoneVolume, 500.0f);
 
     // Test min boundary
-    ED.sidetoneVolume = 0.3f;
+    ED.sidetoneVolume = 1.0f;
     DecrementVariable(&stv);
     EXPECT_FLOAT_EQ(ED.sidetoneVolume, 0.0f);
     DecrementVariable(&stv);
