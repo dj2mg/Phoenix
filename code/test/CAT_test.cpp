@@ -37,6 +37,16 @@ char *PS_write(char* cmd);
 char *PS_read(char* cmd);
 char *RX_write(char* cmd);
 char *TX_write(char* cmd);
+char *FW_write(char* cmd);
+char *FW_read(char* cmd);
+char *SR_write(char* cmd);
+char *SR_read(char* cmd);
+char *CF_write(char* cmd);
+char *CF_read(char* cmd);
+char *EQ_write(char* cmd);
+char *EQ_read(char* cmd);
+char *FL_write(char* cmd);
+char *FL_read(char* cmd);
 void UpdateTransmitAudioGain(void);
 void ShutdownTeensy(void);
 
@@ -1051,9 +1061,10 @@ TEST(CAT, MD_read_ReturnsAMMode) {
     
     char command[] = "MD;";
     char *result = MD_read(command);
-    
-    // Should return AM mode (5)
-    EXPECT_STREQ(result, "MD5;");
+
+    // AM and SAM are distinct demodulators, so they read back distinctly:
+    // MD4 for AM, MD5 for SAM.
+    EXPECT_STREQ(result, "MD4;");
 }
 
 TEST(CAT, MD_read_ReturnsSAMMode) {
@@ -2343,4 +2354,290 @@ TEST(CAT, command_parser_RecognizesTXCommands){
     char tx_cmd[] = "TX;";
     char *result = command_parser(tx_cmd);
     EXPECT_STREQ(result, "");
+}
+
+// ============================================================================
+// Commands added for the hardware-in-the-loop filter test suite
+//
+// These drive radio state that was previously reachable only from the
+// touchscreen menus. Every one of them is exercised through command_parser() as
+// well as directly, because the parser selects write-vs-read purely by where the
+// semicolon falls: it tests the write length first, so a command whose set_len
+// and read_len are equal can never reach its read function.
+// ============================================================================
+
+TEST(CAT, SR_write_SetsSampleRate) {
+    uint8_t saved = SampleRate;
+    modeSM.state_id = ModeSm_StateId_SSB_RECEIVE;
+
+    char cmd176[] = "SR0;";
+    EXPECT_STREQ(SR_write(cmd176), "");
+    EXPECT_EQ(SampleRate, SAMPLE_RATE_176K);
+
+    char cmd192[] = "SR1;";
+    EXPECT_STREQ(SR_write(cmd192), "");
+    EXPECT_EQ(SampleRate, SAMPLE_RATE_192K);
+
+    SampleRate = saved;
+}
+
+TEST(CAT, SR_read_ReturnsSampleRateIndex) {
+    uint8_t saved = SampleRate;
+
+    SampleRate = SAMPLE_RATE_176K;
+    char cmd[] = "SR;";
+    EXPECT_STREQ(SR_read(cmd), "SR0;");
+
+    SampleRate = SAMPLE_RATE_192K;
+    EXPECT_STREQ(SR_read(cmd), "SR1;");
+
+    SampleRate = saved;
+}
+
+TEST(CAT, SR_write_RejectsOutOfRange) {
+    uint8_t saved = SampleRate;
+    modeSM.state_id = ModeSm_StateId_SSB_RECEIVE;
+    SampleRate = SAMPLE_RATE_192K;
+
+    char cmd[] = "SR2;";
+    EXPECT_STREQ(SR_write(cmd), "?;");
+    EXPECT_EQ(SampleRate, SAMPLE_RATE_192K) << "a rejected rate must not change anything";
+
+    SampleRate = saved;
+}
+
+TEST(CAT, SR_write_RefusedWhileTransmitting) {
+    uint8_t saved = SampleRate;
+    SampleRate = SAMPLE_RATE_192K;
+    modeSM.state_id = ModeSm_StateId_SSB_TRANSMIT;
+
+    char cmd[] = "SR0;";
+    EXPECT_STREQ(SR_write(cmd), "?;");
+    EXPECT_EQ(SampleRate, SAMPLE_RATE_192K)
+        << "changing rate mid-transmission would reconfigure the I2S clock underneath the TX chain";
+
+    modeSM.state_id = ModeSm_StateId_SSB_RECEIVE;
+    SampleRate = saved;
+}
+
+TEST(CAT, SR_ParserReachesBothForms) {
+    uint8_t saved = SampleRate;
+    modeSM.state_id = ModeSm_StateId_SSB_RECEIVE;
+
+    char write_cmd[] = "SR0;";
+    EXPECT_STREQ(command_parser(write_cmd), "");
+    EXPECT_EQ(SampleRate, SAMPLE_RATE_176K);
+
+    char read_cmd[] = "SR;";
+    EXPECT_STREQ(command_parser(read_cmd), "SR0;");
+
+    SampleRate = saved;
+}
+
+TEST(CAT, CF_write_SetsCWFilterIndex) {
+    int32_t saved = ED.CWFilterIndex;
+
+    for (int i = 0; i <= 5; i++) {
+        char cmd[] = "CF0;";
+        cmd[2] = '0' + i;
+        EXPECT_STREQ(CF_write(cmd), "");
+        EXPECT_EQ(ED.CWFilterIndex, i);
+    }
+
+    ED.CWFilterIndex = saved;
+}
+
+TEST(CAT, CF_read_ReturnsCWFilterIndex) {
+    int32_t saved = ED.CWFilterIndex;
+
+    ED.CWFilterIndex = 4;
+    char cmd[] = "CF;";
+    EXPECT_STREQ(CF_read(cmd), "CF4;");
+
+    ED.CWFilterIndex = saved;
+}
+
+TEST(CAT, CF_write_RejectsOutOfRange) {
+    int32_t saved = ED.CWFilterIndex;
+    ED.CWFilterIndex = 2;
+
+    char cmd[] = "CF6;";
+    EXPECT_STREQ(CF_write(cmd), "?;");
+    EXPECT_EQ(ED.CWFilterIndex, 2);
+
+    ED.CWFilterIndex = saved;
+}
+
+TEST(CAT, CF_ParserReachesBothForms) {
+    int32_t saved = ED.CWFilterIndex;
+
+    char write_cmd[] = "CF3;";
+    EXPECT_STREQ(command_parser(write_cmd), "");
+    EXPECT_EQ(ED.CWFilterIndex, 3);
+
+    char read_cmd[] = "CF;";
+    EXPECT_STREQ(command_parser(read_cmd), "CF3;");
+
+    ED.CWFilterIndex = saved;
+}
+
+TEST(CAT, EQ_write_SetsEqualizerCell) {
+    int32_t saved = ED.equalizerRec[7];
+
+    char cmd[] = "EQ07050;";
+    EXPECT_STREQ(EQ_write(cmd), "");
+    EXPECT_EQ(ED.equalizerRec[7], 50);
+
+    ED.equalizerRec[7] = saved;
+}
+
+TEST(CAT, EQ_read_ReturnsEqualizerCell) {
+    int32_t saved = ED.equalizerRec[13];
+
+    ED.equalizerRec[13] = 100;
+    char cmd[] = "EQ13;";
+    EXPECT_STREQ(EQ_read(cmd), "EQ13100;");
+
+    ED.equalizerRec[13] = 0;
+    EXPECT_STREQ(EQ_read(cmd), "EQ13000;");
+
+    ED.equalizerRec[13] = saved;
+}
+
+TEST(CAT, EQ_write_RejectsOutOfRange) {
+    int32_t saved = ED.equalizerRec[0];
+    ED.equalizerRec[0] = 100;
+
+    char bad_cell[] = "EQ14050;";
+    EXPECT_STREQ(EQ_write(bad_cell), "?;");
+
+    char bad_value[] = "EQ00101;";
+    EXPECT_STREQ(EQ_write(bad_value), "?;");
+    EXPECT_EQ(ED.equalizerRec[0], 100);
+
+    char bad_read[] = "EQ14;";
+    EXPECT_STREQ(EQ_read(bad_read), "?;");
+
+    ED.equalizerRec[0] = saved;
+}
+
+TEST(CAT, EQ_ParserReachesBothForms) {
+    int32_t saved = ED.equalizerRec[2];
+
+    char write_cmd[] = "EQ02075;";
+    EXPECT_STREQ(command_parser(write_cmd), "");
+    EXPECT_EQ(ED.equalizerRec[2], 75);
+
+    char read_cmd[] = "EQ02;";
+    EXPECT_STREQ(command_parser(read_cmd), "EQ02075;");
+
+    ED.equalizerRec[2] = saved;
+}
+
+TEST(CAT, FL_write_SetsLowCutOnUSB) {
+    ED.activeVFO = VFO_A;
+    ED.currentBand[VFO_A] = BAND_20M;
+    bands[BAND_20M].mode = USB;
+    bands[BAND_20M].FLoCut_Hz = 200;
+    bands[BAND_20M].FHiCut_Hz = 3000;
+
+    char cmd[] = "FL0400;";
+    EXPECT_STREQ(FL_write(cmd), "");
+    EXPECT_EQ(bands[BAND_20M].FLoCut_Hz, 400);
+    EXPECT_EQ(bands[BAND_20M].FHiCut_Hz, 3000) << "FL must not disturb the other edge";
+
+    bands[BAND_20M].FLoCut_Hz = 200;
+}
+
+TEST(CAT, FL_write_RejectsCrossingTheHighCut) {
+    ED.activeVFO = VFO_A;
+    ED.currentBand[VFO_A] = BAND_20M;
+    bands[BAND_20M].mode = USB;
+    bands[BAND_20M].FLoCut_Hz = 200;
+    bands[BAND_20M].FHiCut_Hz = 3000;
+
+    char cmd[] = "FL3500;";
+    FL_write(cmd);
+    EXPECT_EQ(bands[BAND_20M].FLoCut_Hz, 200) << "low cut must stay below the high cut";
+}
+
+TEST(CAT, FL_read_ReturnsLowCut) {
+    ED.activeVFO = VFO_A;
+    ED.currentBand[VFO_A] = BAND_20M;
+    bands[BAND_20M].mode = USB;
+    bands[BAND_20M].FLoCut_Hz = 300;
+
+    char cmd[] = "FL;";
+    EXPECT_STREQ(FL_read(cmd), "FL0300;");
+
+    bands[BAND_20M].FLoCut_Hz = 200;
+}
+
+TEST(CAT, FW_read_IsReachableThroughTheParser) {
+    // FW used to declare set_len == read_len, and because command_parser tests
+    // the write form first, "FW;" fell through to "?;" and the bandwidth could
+    // be set but never read back.
+    ED.activeVFO = VFO_A;
+    ED.currentBand[VFO_A] = BAND_20M;
+    bands[BAND_20M].mode = USB;
+    bands[BAND_20M].FLoCut_Hz = 200;
+    bands[BAND_20M].FHiCut_Hz = 2800;
+
+    char read_cmd[] = "FW;";
+    EXPECT_STREQ(command_parser(read_cmd), "FW2800;");
+
+    char write_cmd[] = "FW2400;";
+    EXPECT_STREQ(command_parser(write_cmd), "");
+    EXPECT_EQ(bands[BAND_20M].FHiCut_Hz, 2400);
+    EXPECT_STREQ(command_parser(read_cmd), "FW2400;");
+
+    bands[BAND_20M].FHiCut_Hz = 3000;
+}
+
+TEST(CAT, MD_write_SetsModulationNotJustBandMode) {
+    // Demodulate() switches on ED.modulation, while InitFilterMask() compares it
+    // against bands[].mode and mirrors the passband when they disagree. Setting
+    // only bands[].mode therefore inverts the receive filter.
+    ED.activeVFO = VFO_A;
+    ED.currentBand[VFO_A] = BAND_20M;
+    modeSM.state_id = ModeSm_StateId_SSB_RECEIVE;
+
+    char usb[] = "MD2;";
+    MD_write(usb);
+    EXPECT_EQ(bands[BAND_20M].mode, USB);
+    EXPECT_EQ(ED.modulation[VFO_A], USB);
+
+    char lsb[] = "MD1;";
+    MD_write(lsb);
+    EXPECT_EQ(bands[BAND_20M].mode, LSB);
+    EXPECT_EQ(ED.modulation[VFO_A], LSB);
+
+    char am[] = "MD4;";
+    MD_write(am);
+    EXPECT_EQ(bands[BAND_20M].mode, AM);
+    EXPECT_EQ(ED.modulation[VFO_A], AM);
+
+    char sam[] = "MD5;";
+    MD_write(sam);
+    EXPECT_EQ(bands[BAND_20M].mode, SAM);
+    EXPECT_EQ(ED.modulation[VFO_A], SAM);
+}
+
+TEST(CAT, MD_write_LeavesCWReceive) {
+    // TO_SSB_MODE used to be reachable only from the front-panel TOGGLE_MODE
+    // button, so CAT could enter CW receive and never get back out.
+    ModeSm_start(&modeSM);
+    ED.activeVFO = VFO_A;
+    ED.currentBand[VFO_A] = BAND_20M;
+    modeSM.state_id = ModeSm_StateId_SSB_RECEIVE;
+
+    char cw[] = "MD3;";
+    MD_write(cw);
+    ASSERT_EQ(modeSM.state_id, ModeSm_StateId_CW_RECEIVE);
+
+    char usb[] = "MD2;";
+    MD_write(usb);
+    EXPECT_EQ(modeSM.state_id, ModeSm_StateId_SSB_RECEIVE)
+        << "MD1/MD2 must be able to bring the radio back out of CW receive";
+    EXPECT_EQ(ED.modulation[VFO_A], USB);
 }

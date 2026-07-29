@@ -78,6 +78,14 @@ char *VX_write( char* cmd );
 char *VX_read( char* cmd );
 char *ED_read(  char* cmd );
 char *PR_read( char* cmd);
+char *SR_write( char* cmd );
+char *SR_read(  char* cmd );
+char *CF_write( char* cmd );
+char *CF_read(  char* cmd );
+char *EQ_write( char* cmd );
+char *EQ_read(  char* cmd );
+char *FL_write( char* cmd );
+char *FL_read(  char* cmd );
 
 typedef struct  {
     char name[3];   //two chars plus zero terminator
@@ -90,7 +98,10 @@ typedef struct  {
 // The command_parser will compare the CAT command received against the entires in
 // this array. If it matches, then it will call the corresponding write_function
 // or the read_function, depending on the length of the command string.
-#define NUM_SUPPORTED_COMMANDS 25
+// Note on set_len / read_len: command_parser() tests the write form FIRST, so a
+// command whose two lengths are equal can never reach its read function. Keep
+// them distinct for anything that needs to be readable.
+#define NUM_SUPPORTED_COMMANDS 29
 valid_command valid_commands[ NUM_SUPPORTED_COMMANDS ] =
     {
         { "AG", 3+4,4, AG_write, AG_read },  //audio gain
@@ -102,7 +113,7 @@ valid_command valid_commands[ NUM_SUPPORTED_COMMANDS ] =
         { "FB", 3+11,3, FB_write, FB_read },  //VFO B
         { "FR", 3+1, 3, FR_write, FR_read }, // selects or reads the VFO of the receiver
         { "FT", 3+1, 3, FT_write, FT_read }, // selects or reads the VFO of the transmitter
-        { "FW", 3+4,3+4,FW_write, FW_read }, // DSP filter bandwidth
+        { "FW", 3+4,3,  FW_write, FW_read }, // DSP filter bandwidth (high cut)
         { "ID", 0,  3, unsupported_cmd, ID_read }, // RADIO ID#, read-only
         { "IF", 0,  3, unsupported_cmd, IF_read }, //radio status, read-only
         { "KS", 3+1,3, KS_write, KS_read }, // keyer speed
@@ -117,7 +128,11 @@ valid_command valid_commands[ NUM_SUPPORTED_COMMANDS ] =
         { "TX", 3,  0, TX_write, unsupported_cmd }, // set transceiver to transmit.
         { "VX", 3+1, 3, VX_write, VX_read }, // VOX write/read
         { "ED", 0,  3, unsupported_cmd, ED_read }, // print out the state of the EEPROM data -- NOT a Kenwood keyword
-        { "PR", 0,  3, unsupported_cmd, PR_read } // print out the state of the hardware register -- NOT a Kenwood keyword
+        { "PR", 0,  3, unsupported_cmd, PR_read }, // print out the state of the hardware register -- NOT a Kenwood keyword
+        { "SR", 3+1,3, SR_write, SR_read }, // sample rate 0=176.4k 1=192k -- NOT a Kenwood keyword
+        { "CF", 3+1,3, CF_write, CF_read }, // receive CW audio filter index -- NOT a Kenwood keyword
+        { "EQ", 3+5,3+2, EQ_write, EQ_read }, // receive equalizer cell -- NOT a Kenwood keyword
+        { "FL", 3+4,3, FL_write, FL_read } // DSP filter low cut -- NOT a Kenwood keyword
     };
 
 /**
@@ -477,37 +492,60 @@ char *KS_write( char* cmd  ){
 }
 
 /**
- * CAT command MD - Set operating mode (LSB, USB, CW, AM)
- * @param cmd CAT command string with mode number: 1=LSB, 2=USB, 3=CW, 5=AM
+ * Select the demodulator, keeping every copy of the mode in step.
+ *
+ * The mode lives in two places: bands[].mode is the band's default, and
+ * ED.modulation[] is what Demodulate() actually switches on. InitFilterMask()
+ * compares the two, and when they disagree it treats the difference as a
+ * deliberate departure from the band default and mirrors the passband. Setting
+ * only one of them therefore does not just leave the demodulator alone - it
+ * inverts the receive filter.
+ *
+ * Also leaves CW receive if that is where we are: the mode state machine has no
+ * other CAT-reachable path back to SSB.
+ *
+ * @param mode The modulation to select
+ */
+static void SetModulation(ModulationType mode){
+    if (modeSM.state_id == ModeSm_StateId_CW_RECEIVE){
+        ModeSm_dispatch_event(&modeSM, ModeSm_EventId_TO_SSB_MODE);
+    }
+    bands[ ED.currentBand[ED.activeVFO] ].mode = mode;
+    ED.modulation[ED.activeVFO] = mode;
+    SetInterrupt(iMODE);
+}
+
+/**
+ * CAT command MD - Set operating mode
+ * @param cmd CAT command string with mode number: 1=LSB, 2=USB, 3=CW, 4=AM, 5=SAM
  * @return Empty string
  */
 char *MD_write( char* cmd  ){
     int p1 = atoi( &cmd[2] );
     switch( p1 ){
         case 1: // LSB
-            bands[ ED.currentBand[ED.activeVFO] ].mode = LSB;
-            SetInterrupt(iMODE);
+            SetModulation(LSB);
             break;
         case 2: // USB
-            bands[ ED.currentBand[ED.activeVFO] ].mode = USB;
-            SetInterrupt(iMODE);
+            SetModulation(USB);
             break;
 
         case 3: // CW
             // Change to CW mode if in SSB receive mode, otherwise ignore:
             if (modeSM.state_id == ModeSm_StateId_SSB_RECEIVE){
                 if( ED.currentBand[ED.activeVFO] < BAND_30M ){
-                    bands[ ED.currentBand[ED.activeVFO] ].mode = LSB;
+                    SetModulation(LSB);
                 }else{
-                    bands[ ED.currentBand[ED.activeVFO] ].mode = USB;
+                    SetModulation(USB);
                 }
                 ModeSm_dispatch_event(&modeSM, ModeSm_EventId_TO_CW_MODE);
-                SetInterrupt(iMODE);
             }
             break;
-        case 5: // AM
-            bands[ ED.currentBand[ED.activeVFO] ].mode = SAM; // default to SAM rather than AM
-            SetInterrupt(iMODE);
+        case 4: // AM
+            SetModulation(AM);
+            break;
+        case 5: // SAM
+            SetModulation(SAM);
             break;
         default:
             break;
@@ -530,7 +568,7 @@ char *MD_read( char* cmd ){
         ( modeSM.state_id == ModeSm_StateId_CW_TRANSMIT_SPACE ) ){ sprintf( obuf, "MD3;" ); return obuf; }
     if( bands[ ED.currentBand[ED.activeVFO] ].mode == LSB ){ sprintf( obuf, "MD1;" ); return obuf; }
     if( bands[ ED.currentBand[ED.activeVFO] ].mode == USB ){ sprintf( obuf, "MD2;" ); return obuf; }
-    if( bands[ ED.currentBand[ED.activeVFO] ].mode == AM  ){ sprintf( obuf, "MD5;" ); return obuf; }
+    if( bands[ ED.currentBand[ED.activeVFO] ].mode == AM  ){ sprintf( obuf, "MD4;" ); return obuf; }
     if( bands[ ED.currentBand[ED.activeVFO] ].mode == SAM ){ sprintf( obuf, "MD5;" ); return obuf; }
     sprintf( obuf, "?;");
     return obuf;  //Huh? How'd we get here?
@@ -755,6 +793,177 @@ char *ED_read(  char* cmd  ){
 char *PR_read(  char* cmd  ){
     buffer_pretty_print_last_entry();
     sprintf( obuf, "PR;");
+    return obuf;
+}
+
+/** Sample rates reachable over CAT, in the order the SR parameter selects them.
+ *  These are the two rates the front panel menu offers. */
+static const uint8_t SR_CAT_RATES[2] = { SAMPLE_RATE_176K, SAMPLE_RATE_192K };
+#define SR_CAT_RATE_COUNT 2
+
+/**
+ * CAT command SR - set the sample rate (non-standard Kenwood command)
+ *
+ * `SR0;` selects 176.4 ksps, `SR1;` selects 192 ksps. Rejected while transmitting,
+ * because ChangeSampleRate() reconfigures the I2S clock and rebuilds the whole
+ * DSP chain.
+ *
+ * @param cmd CAT command string
+ * @return Empty string on success, "?;" if the rate is out of range or the radio is not receiving
+ */
+char *SR_write( char* cmd ){
+    int p1 = cmd[2] - '0';
+    if( p1 < 0 || p1 >= SR_CAT_RATE_COUNT ){
+        sprintf( obuf, "?;");
+        return obuf;
+    }
+    if( modeSM.state_id != ModeSm_StateId_SSB_RECEIVE &&
+        modeSM.state_id != ModeSm_StateId_CW_RECEIVE ){
+        sprintf( obuf, "?;");
+        return obuf;
+    }
+    ChangeSampleRate( SR_CAT_RATES[ p1 ] );
+    return empty_string_p;
+}
+
+/**
+ * CAT command SR - read the sample rate (non-standard Kenwood command)
+ * @param cmd CAT command string
+ * @return Response "SRn;" where n indexes SR_CAT_RATES, or "?;" if the radio is at some other rate
+ */
+char *SR_read( char* cmd ){
+    for( int i = 0; i < SR_CAT_RATE_COUNT; i++ ){
+        if( SampleRate == SR_CAT_RATES[ i ] ){
+            sprintf( obuf, "SR%d;", i);
+            return obuf;
+        }
+    }
+    sprintf( obuf, "?;");
+    return obuf;
+}
+
+/**
+ * CAT command CF - select the receive CW audio filter (non-standard Kenwood command)
+ *
+ * `CF0;` through `CF4;` select the five CW bandwidths (840, 1080, 1320, 1800 and
+ * 2000 Hz); `CF5;` bypasses the filter.
+ *
+ * @param cmd CAT command string
+ * @return Empty string on success, "?;" if the index is out of range
+ */
+char *CF_write( char* cmd ){
+    int p1 = cmd[2] - '0';
+    if( p1 < 0 || p1 > 5 ){
+        sprintf( obuf, "?;");
+        return obuf;
+    }
+    ED.CWFilterIndex = p1;
+    return empty_string_p;
+}
+
+/**
+ * CAT command CF - read the receive CW audio filter index (non-standard Kenwood command)
+ * @param cmd CAT command string
+ * @return Response "CFn;"
+ */
+char *CF_read( char* cmd ){
+    sprintf( obuf, "CF%ld;", (long)ED.CWFilterIndex);
+    return obuf;
+}
+
+/**
+ * CAT command EQ - set one receive equalizer cell (non-standard Kenwood command)
+ *
+ * `EQbbvvv;` where bb is the cell index 00..13 and vvv is the level 000..100.
+ *
+ * @param cmd CAT command string
+ * @return Empty string on success, "?;" if the cell index or level is out of range
+ */
+char *EQ_write( char* cmd ){
+    char idxbuf[3] = { cmd[2], cmd[3], '\0' };
+    int band = atoi( idxbuf );
+    int value = atoi( &cmd[4] );
+    if( band < 0 || band >= EQUALIZER_CELL_COUNT || value < 0 || value > 100 ){
+        sprintf( obuf, "?;");
+        return obuf;
+    }
+    ED.equalizerRec[ band ] = value;
+    return empty_string_p;
+}
+
+/**
+ * CAT command EQ - read one receive equalizer cell (non-standard Kenwood command)
+ * @param cmd CAT command string
+ * @return Response "EQbbvvv;", or "?;" if the cell index is out of range
+ */
+char *EQ_read( char* cmd ){
+    char idxbuf[3] = { cmd[2], cmd[3], '\0' };
+    int band = atoi( idxbuf );
+    if( band < 0 || band >= EQUALIZER_CELL_COUNT ){
+        sprintf( obuf, "?;");
+        return obuf;
+    }
+    sprintf( obuf, "EQ%02d%03ld;", band, (long)ED.equalizerRec[ band ]);
+    return obuf;
+}
+
+/**
+ * CAT command FL - set the DSP filter low cut (non-standard Kenwood command)
+ *
+ * The mirror of FW, which moves the other edge: on USB/AM/SAM this moves
+ * FLoCut_Hz, on LSB it moves FHiCut_Hz. The value is always the magnitude of the
+ * edge frequency, as it is for FW.
+ *
+ * @param cmd CAT command string
+ * @return Empty string
+ */
+char *FL_write( char* cmd ){
+    int32_t g = atoi( &cmd[2] );
+    switch (bands[ED.currentBand[ED.activeVFO]].mode) {
+        case LSB:{
+            // On LSB the passband is negative, so the low cut is the high edge.
+            if (g < -bands[ED.currentBand[ED.activeVFO]].FLoCut_Hz)
+                bands[ED.currentBand[ED.activeVFO]].FHiCut_Hz = -g;
+            break;
+        }
+        case AM:
+        case SAM:
+        case USB:{
+            if (g < bands[ED.currentBand[ED.activeVFO]].FHiCut_Hz)
+                bands[ED.currentBand[ED.activeVFO]].FLoCut_Hz = g;
+            break;
+        }
+        case IQ:
+        case DCF77:
+            break;
+    }
+    UpdateFIRFilterMask(&RXfilters);
+    return empty_string_p;
+}
+
+/**
+ * CAT command FL - read the DSP filter low cut (non-standard Kenwood command)
+ * @param cmd CAT command string
+ * @return Response "FLnnnn;"
+ */
+char *FL_read( char* cmd ){
+    int32_t flow = 0;
+    switch (bands[ED.currentBand[ED.activeVFO]].mode) {
+        case LSB:{
+            flow = -bands[ED.currentBand[ED.activeVFO]].FHiCut_Hz;
+            break;
+        }
+        case AM:
+        case SAM:
+        case USB:{
+            flow = bands[ED.currentBand[ED.activeVFO]].FLoCut_Hz;
+            break;
+        }
+        case IQ:
+        case DCF77:
+            break;
+    }
+    sprintf( obuf, "FL%04ld;", (long)flow);
     return obuf;
 }
 
