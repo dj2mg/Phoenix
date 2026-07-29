@@ -3,10 +3,10 @@ title: CAT Control (Kenwood emulation)
 type: module
 status: draft
 created: 2026-06-08
-updated: 2026-06-08
+updated: 2026-07-29
 tags: [cat, kenwood, ts-480, ts-2000, serial, rig-control, usb]
 source_refs: []
-related: ["[[overview]]", "[[main-loop]]", "[[mode-state-machine]]", "[[tune-frequency-control]]", "[[persistent-config]]"]
+related: ["[[overview]]", "[[main-loop]]", "[[mode-state-machine]]", "[[tune-frequency-control]]", "[[persistent-config]]", "[[sample-rate-switching]]", "[[filter-hil-test]]", "[[audio-equalizer]]", "[[cw-processing]]"]
 ---
 
 # CAT Control (Kenwood emulation)
@@ -30,7 +30,8 @@ two share most commands so it works either way, but the docs should be reconcile
 
 ## Architecture: a command-dispatch table
 
-The core is a static table of `valid_command` entries (`NUM_SUPPORTED_COMMANDS = 25`):
+The core is a static table of `valid_command` entries (`NUM_SUPPORTED_COMMANDS = 29`,
+`CAT.cpp:104-136`):
 ```c
 typedef struct {
     char name[3];                       // 2-letter command + NUL
@@ -44,11 +45,16 @@ typedef struct {
 bare command (e.g. `FA;`), a set carries a payload (`FA00014200000;`). Read handlers format
 `ED`/hardware state into a Kenwood response string; write handlers apply the change.
 
-## Implemented commands (25)
+> ⚠️ **Adding a command? `set_len` and `read_len` must differ.** `command_parser` tests the
+> **write form first**, so a command declaring `set_len == read_len` has an **unreachable read
+> handler** — it becomes silently write-only. This is not hypothetical: it is exactly the bug
+> that made `FW;` unreadable for as long as `FW` has existed (see below).
+
+## Implemented commands (29)
 
 | Group | Commands |
 |---|---|
-| Frequency / VFO | `FA`/`FB` (VFO A/B freq), `FR`/`FT` (RX/TX VFO select), `FW` (filter width) |
+| Frequency / VFO | `FA`/`FB` (VFO A/B freq), `FR`/`FT` (RX/TX VFO select), `FW` (filter high cut) |
 | Mode / status | `MD` (mode), `IF` (transceiver status string), `ID` (radio id) |
 | Band | `BU`/`BD` (band up/down) |
 | Gain / audio | `AG` (AF gain), `MG` (mic gain), `PC` (power control) |
@@ -56,11 +62,41 @@ bare command (e.g. `FA;`), a set carries a payload (`FA00014200000;`). Read hand
 | Keyer | `KS` (keyer speed / WPM) |
 | PTT | `TX` (transmit), `RX` (receive) |
 | Misc | `AI` (auto-info), `PS` (power on/off), `PD`, `DB` |
-| **Custom (non-Kenwood)** | `ED` (dump the `ED` config), `PR` (dump the `hardwareRegister`) |
+| **Custom (non-Kenwood)** | `ED` (dump the `ED` config), `PR` (dump the `hardwareRegister`), **`SR`**, **`CF`**, **`EQ`**, **`FL`** |
 
-`ED` and `PR` are Phoenix extensions explicitly marked "NOT a Kenwood keyword"
-(`CAT.cpp:119-120`) — handy debug dumps of [[persistent-config]] and the
-[[filter-boards]] `hardwareRegister`.
+`ED` and `PR` are Phoenix extensions explicitly marked "NOT a Kenwood keyword" — handy debug
+dumps of [[persistent-config]] and the [[filter-boards]] `hardwareRegister`.
+
+### DSP-settings commands (added 2026-07, `CAT.cpp:132-135`)
+
+Added so [[filter-hil-test]] could drive settings that were previously **touchscreen-only**.
+
+| Cmd | Set | Read | Meaning |
+|---|---|---|---|
+| `SR` | `SRn;` | `SR;` | Sample rate: `0` = 176.4 ksps, `1` = 192 ksps ([[sample-rate-switching]]). **Rejected while transmitting** — it reconfigures the I²S clock and rebuilds the whole DSP chain (`CAT.cpp:804-827`). |
+| `CF` | `CFn;` | `CF;` | Receive CW audio filter index 0–5 ([[cw-processing]]). |
+| `EQ` | `EQbbvvv;` | `EQbb;` | Receive equaliser cell `bb` = 00–13, level `vvv` = 000–100 ([[audio-equalizer]]). Note set/read lengths differ by design. |
+| `FL` | `FL####;` | `FL;` | DSP filter **low** cut — the mirror of `FW`'s high cut. |
+
+⚠️ **Still no CAT command for AGC mode.** That is the one setting [[filter-hil-test]] needs and
+cannot have, so the suite refuses to run rather than setting it.
+
+## Three fixes to pre-existing commands
+
+All three affected CAT users on earlier releases:
+
+- ⚠️ **`MD` inverted the receive filter.** `MD_write` set `bands[].mode` but never
+  `ED.modulation[]`. `Demodulate()` switches on the *latter*, while `InitFilterMask()` *compares
+  the two* and treats a difference as a deliberate departure from the band default — by
+  **mirroring the passband**. So `MD` did not merely fail to change the demodulator; it flipped
+  the sideband of the receive filter. (Same normalization the display had to learn — see
+  `EffectivePassbandEdges_Hz` in [[display-subsystem]].)
+- **`MD1`/`MD2` could not escape CW.** They now dispatch `TO_SSB_MODE` when in CW receive. That
+  transition previously existed **only on the front-panel button**, so CAT could enter CW mode
+  and never leave it ([[mode-state-machine]]).
+- **`FW` was write-only.** It declared `set_len == read_len`, making `FW;` unreachable per the
+  parser rule above. Also `MD4` now selects **AM**, which was previously unreachable (`MD5`
+  gives SAM).
 
 ## How commands apply
 CAT does **not** have a private path to the hardware — it feeds the **same channels as the
@@ -80,6 +116,13 @@ mode, RX/TX, etc.); `FA_read`/`MD_read`/`KS_read`/… each return one field.
 ## Open questions
 - Reconcile TS-480 (`CAT.cpp`) vs TS-2000 (`CAT.h`) and verify the `IF` status-string field
   layout against `code/docs/ts_480_pc.pdf`.
+- A CAT command for **AGC mode** — the remaining gap for [[filter-hil-test]], which currently
+  has to demand the operator set it by hand.
+- `SR` is interlocked against transmit, but the **menu path is not** ([[sample-rate-switching]]).
+  Whether that asymmetry is deliberate.
+- The set/read-length constraint is a parser property enforced only by convention. Nothing
+  fails at build time if a new command violates it — a static assertion over the table would
+  catch the next `FW`.
 - Which `unsupported_cmd` stubs exist and how the radio replies to unknown commands (the `?`
   error response?).
 - Whether `AI` (auto-information) actually pushes unsolicited updates or is a no-op.

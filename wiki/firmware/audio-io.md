@@ -3,10 +3,10 @@ title: Audio I/O (MainBoard_AudioIO — OpenAudio quad-I2S graph)
 type: module
 status: draft
 created: 2026-06-15
-updated: 2026-06-15
-tags: [audio, i2s, openaudio, codec, queues, mixers, sidetone, mode-routing]
+updated: 2026-07-29
+tags: [audio, i2s, openaudio, codec, queues, mixers, sidetone, mode-routing, sample-rate]
 source_refs: [sources/t41-ep-schematics]
-related: ["[[overview]]", "[[hardware-platform]]", "[[dsp-chain]]", "[[mode-state-machine]]", "[[main-loop]]", "[[cw-processing]]", "[[real-time-constraints]]", "[[iq-imbalance-correction]]"]
+related: ["[[overview]]", "[[hardware-platform]]", "[[dsp-chain]]", "[[mode-state-machine]]", "[[main-loop]]", "[[cw-processing]]", "[[real-time-constraints]]", "[[iq-imbalance-correction]]", "[[sample-rate-switching]]"]
 ---
 
 # Audio I/O (MainBoard_AudioIO)
@@ -93,9 +93,23 @@ them, and [[dsp-chain]] reads/writes them from the main loop ([[real-time-constr
 
 `InitializeAudio()` (`:446`): `SetI2SFreq(SR[SampleRate].rate)`, allocate
 `AudioMemory(500)` + `AudioMemory_F32(10)`, configure the codecs, and set the sidetone
-oscillator amplitude/frequency (`:452-475`). `SetI2SFreq()` (`:488`) reprograms the Teensy I²S
-PLL for **48 / 96 / 192 kHz** — Phoenix runs **192 kHz** raw ([[multirate-decimation]]).
+oscillator amplitude/frequency (`:452-475`). `SetI2SFreq()` (`:565`) computes the SAI1 PLL
+divider chain (`n1`, `n2`, fractional `C`) for the requested rate.
 `WarmUpAudioIO()` clears the I²S/codec power-on glitch that otherwise corrupts the first PTT.
+
+### Changing the rate at run time
+
+This module owns the rate switch. **`ChangeSampleRate(uint8_t newRate)`** (`:519`) is the entry
+point for the "Sample Rate" menu and the `SR` CAT command — full sequence, and why each step is
+ordered where it is, on [[sample-rate-switching]]. In outline: compensate `centerFreq_Hz` for
+the change in the Fs/4 IF offset → `AudioNoInterrupts()` → `SetI2SFreq()` →
+`InitializeSignalProcessing()` → retune the oscillators → flush the four input queues →
+`AudioInterrupts()` → reprogram the Si5351 outside the critical section.
+
+**`UpdateSampleRateDependentOscillators()`** (`:503`) is the piece that belongs to this module
+specifically. The sidetone and TX-IQ-cal tones are OpenAudio synthesized oscillators whose
+`frequency()` argument is scaled by `AUDIO_SAMPLE_RATE_EXACT / SR[SampleRate].rate`, so they
+shift audibly if the rate changes without them being retuned.
 
 ## Codec control objects
 - **`sgtl5000_teensy`** (`AudioControlSGTL5000_Extended`) — the **real SGTL5000** on the Teensy
@@ -107,5 +121,7 @@ PLL for **48 / 96 / 192 kHz** — Phoenix runs **192 kHz** raw ([[multirate-deci
   code-clarity fix, not a bug.
 
 ## Open questions
-- Whether the `transmitIQcal_oscillator` amplitude/frequency are set per-calibration or fixed.
+- Whether the `transmitIQcal_oscillator` **amplitude** is set per-calibration or fixed. *(The
+  frequency half of this is resolved: a fixed nominal **800 Hz**, rescaled on every rate change
+  by `UpdateSampleRateDependentOscillators()` `:505`.)*
 - Exact `AudioMemory` headroom vs. the worst-case quad-stream block backlog.

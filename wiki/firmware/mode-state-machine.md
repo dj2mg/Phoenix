@@ -3,10 +3,10 @@ title: Mode State Machine (ModeSm)
 type: module
 status: draft
 created: 2026-06-08
-updated: 2026-06-08
+updated: 2026-07-29
 tags: [state-machine, ssb, cw, transmit, keyer, iambic, calibration, statesmith]
 source_refs: []
-related: ["[[overview]]", "[[state-machine-architecture]]", "[[tune-frequency-control]]", "[[main-loop]]", "[[hardware-state-machine]]", "[[ssb-phasing-method]]", "[[rf-board]]", "[[audio-io]]"]
+related: ["[[overview]]", "[[state-machine-architecture]]", "[[tune-frequency-control]]", "[[main-loop]]", "[[hardware-state-machine]]", "[[ssb-phasing-method]]", "[[rf-board]]", "[[audio-io]]", "[[cat-control]]"]
 ---
 
 # Mode State Machine (ModeSm)
@@ -73,6 +73,12 @@ All dispatched from [[main-loop]] (`ModeSm_dispatch_event(&modeSM, …)`):
 - **CW_RECEIVE** → `KEY_PRESSED` ⇒ CW_TRANSMIT_MARK (straight key); `DIT_PRESSED` ⇒
   CW_TRANSMIT_DIT_MARK; `DAH_PRESSED` ⇒ CW_TRANSMIT_DAH_MARK (keyer); `TO_SSB_MODE` ⇒
   SSB_RECEIVE.
+
+> ⚠️ **`TO_SSB_MODE` used to be dispatched only from the front-panel button**
+> (`Loop.cpp:479/484`). CAT's `MD` command changed `bands[].mode` without dispatching it, so a
+> CAT client could put the radio into CW and **never get it out**. `MD1`/`MD2` now dispatch
+> `TO_SSB_MODE` when in CW receive — see [[cat-control]]. The general lesson: a mode change that
+> does not go through this state machine is not a mode change.
 - Transmit transitions are guarded by **`IsTxAllowed()`** = current band is a `HAM_BAND`
   (`Mode.cpp:39`) — the safety interlock that blocks TX out of band.
 

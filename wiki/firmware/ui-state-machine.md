@@ -3,10 +3,10 @@ title: UI State Machine (UISm)
 type: module
 status: draft
 created: 2026-06-08
-updated: 2026-06-08
+updated: 2026-07-29
 tags: [state-machine, ui, menus, screens, splash, statesmith]
 source_refs: []
-related: ["[[overview]]", "[[state-machine-architecture]]", "[[display-subsystem]]", "[[front-panel]]", "[[main-loop]]", "[[mode-state-machine]]"]
+related: ["[[overview]]", "[[state-machine-architecture]]", "[[display-subsystem]]", "[[front-panel]]", "[[main-loop]]", "[[mode-state-machine]]", "[[sample-rate-switching]]"]
 ---
 
 # UI State Machine (UISm)
@@ -95,8 +95,18 @@ Two distinct shapes:
   ModeSm (into `CALIBRATION_STATES`, hardware) — see [[mode-state-machine]],
   [[hardware-state-machine]].
 
+## Menu content is data, not states
+The structural states above are fixed; the menu *contents* live in
+`MainBoard_DisplayMenus.cpp` as `PrimaryMenuOption primaryMenu[9]` with nested
+`SecondaryMenuOption` arrays ([[display-subsystem]]). Adding a menu therefore does **not** touch
+UISm or the `.drawio` diagram — the **"Sample Rate"** menu ([[sample-rate-switching]]) grew the
+array from 8 to 9 entries and required no state-machine regeneration. Worth knowing before
+reaching for StateSmith.
+
 ## Open questions
 - How encoder rotation maps to `mainMenuSelection`/`secondMenuSelection` movement (selection
   is updated outside UISm, in the front-panel/menu code).
 - What `uiUp` actually points at and how deep back-navigation works.
-- The menu *content* model (where the menu item lists live) vs. UISm's structural states.
+- `mainMenuLength`/`secondMenuLength` are UISm state variables while the arrays they describe
+  live in the display module. Nothing links the two at compile time, so a menu added without
+  updating the length would silently truncate — check how they are kept in step.

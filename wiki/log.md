@@ -704,3 +704,69 @@ vs speed-up; same draw-cost lesson) and the trace-over-highlight trade-off of th
 spectrum-refresh-floor (all in `related` + inline). **index.md** bumped firmware 21→22 (44 content
 pages). Status `draft` — display fast-path is hardware-exercised, not unit-tested; thresholds
 (`RAPID_TUNE_ENGAGE_MS=60`/`RAPID_TUNE_RELEASE_MS=180`) pending bench tuning.
+
+## [2026-07-29] ingest | V1.4RC merge — runtime sample rate, rate-independent filters, HIL suite
+Brought the wiki current with the `V1.4RC` merge (`rx-dsp-176k-stage-test` + `fast_encoder`).
+The wiki had been written entirely on `fast_encoder` and knew nothing of the sample-rate work,
+so this is a content ingest from source rather than from a `raw/` document.
+
+**Three new pages** (all `type: decision`, `status: draft`):
+- **firmware/sample-rate-switching.md** — 192 / 176.4 ksps selectable at run time and persisted.
+  `SampleRate` is now `uint8_t& = ED.sampleRate` (`Globals.cpp:106-109`), which is how a value
+  read by hundreds of `SR[SampleRate].rate` call sites moved into the saved JSON untouched.
+  Covers `ChangeSampleRate()` (`MainBoard_AudioIO.cpp:519`) step by step and why the order
+  matters — in particular the `centerFreq_Hz` compensation for the change in the Fs/4 IF offset
+  (3.9 kHz between the rates, applied to both VFOs, computed *before* `SampleRate` is updated),
+  and the `InitializeDecimationFilter` free-before-malloc that had to land first. Menu (primary
+  menu 8→9), `SR` CAT command, and the boot path (`InitializeStorage()` precedes
+  `InitializeSignalProcessing()`, so there is no "apply saved rate" step).
+- **firmware/runtime-filter-design.md** — the filters that had to be fixed before any of that
+  worked. Frozen tables designed for 24 ksps audio scaled by `176400/192000 = 0.91875`, so a
+  "2.0 kHz" CW filter cut at 1.84 kHz and the 4000 Hz EQ cell peaked at 3675 Hz. Now generated
+  from analog prototypes *recovered* from the shipped tables (CW: 0.0200 dB ripple fits
+  `cheby1(12, 0.02)` to 0.013 dB RMSE; EQ: every biquad has `b1=0`, `b2=-b0`, i.e. zeros at
+  `z=±1`, the bilinear image of an analog bandpass). Prewarping is the load-bearing part.
+  Recorded the framing that actually predicts behaviour: **Hz-specified → must be regenerated**
+  vs **fraction-of-Fs → already correct**. Also the three bugs found in passing, of which one is
+  user-visible: the TX decimate-by-2 was flat to 0.425*Fs, folding 6-9.5 kHz into transmitted
+  audio, so **TX audio differs from previous releases even at 192 ksps**.
+- **firmware/filter-hil-test.md** — the AD2 bench suite. Kept to the durable parts: the
+  differential (engaged-minus-bypassed) method and why it makes a speaker-terminal measurement
+  sufficient; the SSB filter as control; the two traps — injection at `|Fs/4 + fineTuneFreq_Hz|`
+  (omitting the fine tune gives *silence*, not a small error) and AGC-off (no CAT command
+  exists, so the suite refuses to run); rate-invariance-not-absolute-accuracy as the criterion;
+  95 checks passed / 0 failed, corners within 0.3%.
+
+**Contradiction resolved (house rule: flag, don't overwrite).** theory/multirate-decimation said
+the runtime-design path's rate independence was "**dormant** — `SampleRate` is set once and
+**never reassigned** anywhere in the firmware". That was true on `fast_encoder` and is now false.
+Rewrote the section with a dated correction, kept the heritage explanation for the RX/TX
+asymmetry (still valid), and marked the "dormant" clause of the 2026-06-14 *Resolved* entry as
+superseded rather than deleting it. Same treatment in roadmap/documentation-todos.
+
+**Two open questions closed from the new code:**
+- audio-equalizer's "tabulate the 14 band centre frequencies" — the generator exposed them as
+  `EQ_BAND_FC_HZ[]` (`DSP_FIR.cpp:1247-1251`), roughly 1/3-octave / R40. Tabulated.
+- cw-processing's "confirm the sample rate the decoder/Goertzel operate at" — the **audio** rate,
+  `SR[SampleRate].rate / RXfilters->DF`. The "12 kHz the sidetone phase implies" that prompted
+  the question came from a **stale comment** (`DSP_CWProcessing.cpp:64` still says `/ 24000`
+  while `:65-66` divides by the live rate). An earlier revision of the page had quoted that
+  comment as if it were the code; corrected in place and logged as a comment-only source fix.
+
+**Pages updated:** cat-control (25→29 commands; the new SR/CF/EQ/FL group; the parser rule that
+`set_len` must differ from `read_len` or the read handler is unreachable — the bug that made
+`FW;` write-only; and the `MD` fix, which did not merely fail to change the demodulator but
+**mirrored the receive passband**), multirate-decimation, theory-overview, zoom-fft,
+audio-equalizer, cw-processing, dsp-chain, audio-io, persistent-config, display-subsystem (the
+`EffectivePassbandEdges_Hz` normalization — display-side counterpart of the same `MD` bug — plus
+the three rate-derived axes), ui-state-machine (menu content is data, not states: the new menu
+needed no StateSmith regeneration), mode-state-machine (`TO_SSB_MODE` was front-panel-only, so
+CAT could enter CW and never leave), tune-frequency-control, iq-imbalance-correction,
+hardware-platform (I2S clock is fractional; HIL measures ~-180 ppm), overview, usb-audio,
+documentation-todos. index.md: 44→47 content pages (firmware 22→25).
+
+**Suggested next:** the "why 176.4 ksps" question is unanswered anywhere in the tree — worth
+asking the owner, because if the answer is USB-audio resampling (22.05 kHz being an exact 1:2 of
+44.1 where 24 kHz needs 147:160) it belongs on roadmap/usb-audio and changes how that feature is
+scoped. Also worth a bench follow-up: loop-budget and group delay at 176.4 vs 192 ksps, which
+[[real-time-constraints]] currently only characterises at 192.

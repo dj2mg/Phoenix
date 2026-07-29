@@ -3,10 +3,10 @@ title: Frequency Control & Tuning Math (Tune.cpp)
 type: module
 status: draft
 created: 2026-06-08
-updated: 2026-06-16
-tags: [tuning, vfo, frequency, fs-over-4, cw-offset, fast-tune, power-calibration]
+updated: 2026-07-29
+tags: [tuning, vfo, frequency, fs-over-4, cw-offset, fast-tune, power-calibration, sample-rate]
 source_refs: []
-related: ["[[overview]]", "[[hardware-state-machine]]", "[[rf-board]]", "[[mode-state-machine]]", "[[iq-quadrature-sampling]]", "[[dsp-chain]]", "[[rapid-tune-mute-freeze]]"]
+related: ["[[overview]]", "[[hardware-state-machine]]", "[[rf-board]]", "[[mode-state-machine]]", "[[iq-quadrature-sampling]]", "[[dsp-chain]]", "[[rapid-tune-mute-freeze]]", "[[sample-rate-switching]]", "[[filter-hil-test]]"]
 ---
 
 # Frequency Control & Tuning Math (Tune.cpp)
@@ -48,6 +48,20 @@ spectrum by **Fs/4** so the operating frequency lands a quarter-band away from D
 that junk, then shifts it back in software. The complex baseband ([[iq-quadrature-sampling]])
 makes the negative-frequency placement meaningful. (Fs/4 is also the cheapest possible
 digital mix — multiplies are just ±1, ±j.)
+
+**Fs/4 is 48 kHz at 192 ksps and 44.1 kHz at 176.4 ksps** ([[sample-rate-switching]]), and this
+has two consequences:
+
+- **Changing the rate moves the dial** unless compensated. `ChangeSampleRate()` shifts
+  `ED.centerFreq_Hz` for **both VFOs** by `Δ(Fs/4)` — 3.9 kHz between the two rates — before it
+  updates `SampleRate`, so `centerFreq_Hz − Fs/4` is held constant and the operator stays on
+  frequency (`MainBoard_AudioIO.cpp:523-532`).
+- ⚠️ **Anything injecting a signal into the receive path must allow for the fine tune as well.**
+  `ReceiveProcessing` shifts *twice* — by Fs/4 (`FreqShiftFs4`) and then by the fine tune
+  (`FreqShiftF`) — so the input frequency that demodulates to DC is `|Fs/4 + fineTuneFreq_Hz|`,
+  not Fs/4. `fineTuneFreq_Hz` is routinely several kHz, far wider than any passband, so omitting
+  it produces **silence rather than a small error**. This is the single most expensive trap in
+  [[filter-hil-test]].
 
 ## The frequency functions
 

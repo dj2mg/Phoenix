@@ -3,15 +3,16 @@ title: Multirate Decimation & Interpolation
 type: concept
 status: draft
 created: 2026-06-08
-updated: 2026-06-14
+updated: 2026-07-29
 tags: [decimation, interpolation, multirate, polyphase, fir, sample-rate]
 source_refs: []
-related: ["[[theory-overview]]", "[[fast-convolution-filtering]]", "[[iq-quadrature-sampling]]", "[[dsp-chain]]", "[[real-time-constraints]]"]
+related: ["[[theory-overview]]", "[[fast-convolution-filtering]]", "[[iq-quadrature-sampling]]", "[[dsp-chain]]", "[[real-time-constraints]]", "[[sample-rate-switching]]", "[[runtime-filter-design]]"]
 ---
 
 # Multirate Decimation & Interpolation
 
-Phoenix digitizes at **192 kHz** but does its channel filtering at a much lower rate, then
+Phoenix digitizes at **192 or 176.4 kHz** ([[sample-rate-switching]]) but does its channel
+filtering at a much lower rate, then
 brings audio back up to the output rate. Working at the lower rate is what makes the sharp
 SSB/CW channel filter affordable: a narrow filter needs a transition band that is a *large
 fraction* of Nyquist, which costs few taps at low fs and many at high fs.
@@ -28,12 +29,12 @@ only the samples that survive, so cost ∝ `numTaps × outputRate`, not input ra
 
 ## What Phoenix does
 
-| Path | Stages | Net | Result | Where |
-|---|---|---|---|---|
-| **RX** | ÷4 then ÷2 | **÷8** | 192 → 24 kHz | `DecimateRxStage1/2`, `SDT.h:407-411` |
-| RX out | ×2 then ×4 | ×8 | 24 → 192 kHz | `FIR_int1/2`, `InterpolateReceiveData` `DSP.cpp:697` |
-| **TX** | ÷4·÷2·÷2 | **÷16** | 192 → 12 kHz | `TransmitFilterConfig`, `SDT.h:537-553` |
-| TX out | ×2·×2·×4 | ×16 | 12 → 192 kHz | same struct |
+| Path | Stages | Net | Result @192k | @176.4k | Where |
+|---|---|---|---|---|---|
+| **RX** | ÷4 then ÷2 | **÷8** | 192 → 24 kHz | 176.4 → 22.05 kHz | `DecimateRxStage1/2`, `SDT.h:407-411` |
+| RX out | ×2 then ×4 | ×8 | 24 → 192 kHz | 22.05 → 176.4 kHz | `FIR_int1/2`, `InterpolateReceiveData` `DSP.cpp:697` |
+| **TX** | ÷4·÷2·÷2 | **÷16** | 192 → 12 kHz | 176.4 → 11.025 kHz | `TransmitFilterConfig`, `SDT.h:537-553` |
+| TX out | ×2·×2·×4 | ×16 | 12 → 192 kHz | 11.025 → 176.4 kHz | same struct |
 
 RX decimation filters are **designed at runtime** (`InitializeDecimationFilter`,
 `DSP_FIR.cpp:1284`) to a 9 kHz passband and **90 dB** stopband (`SDT.h:412-413`). TX instead
@@ -53,23 +54,31 @@ latency choice.** The evidence:
   heap-allocated `malloc`, `DSP_FIR.cpp:1295-1300`); the TX path was built by **reusing the
   legacy fixed tables wholesale**.
 
-- **The runtime path's only structural benefit — rate independence — is currently dormant.**
+- **The runtime path's structural benefit — rate independence — is now live.** ⚠️ *Corrected
+  2026-07-29:* this section previously said the benefit was "dormant" because `SampleRate` was
+  "set once to `SAMPLE_RATE_192K` and **never reassigned** anywhere in the firmware". **That is
+  no longer true.** `SampleRate` is a reference to the persisted `ED.sampleRate`
+  (`Globals.cpp:106-109`) and is reassigned by `ChangeSampleRate()`
+  (`MainBoard_AudioIO.cpp:519`) from a menu or over CAT — see [[sample-rate-switching]].
   `InitializeDecimationFilter` derives both `n_dec_taps` and the coefficients from
-  `SR[SampleRate].rate`, so RX *could* retune to any rate in the `SR[]` table. But
-  `SampleRate` is set once to `SAMPLE_RATE_192K` (`Globals.cpp:106`) and **never reassigned**
-  anywhere in the firmware. So in practice RX also always runs at 192 kHz, and the runtime
-  design recomputes the **same** coefficients on every boot. TX's hardcoded `coeffs192K_*/
-  48K_*/12K_*` tables are simply 192 kHz-specific and would need replacing to change rate.
+  `SR[SampleRate].rate`, so RX genuinely does retune, and the whole DSP chain is rebuilt on
+  each change. `InitializeDecimationFilter` now also **frees its previous allocations**, which
+  it did not need to do while this path ran once per boot.
 
-- **Net trade-off as it stands:** TX = no heap, fully deterministic, but locked to its baked-in
-  192 kHz cutoffs; RX = small init-time heap allocations, recomputed each boot — but to a
-  constant result, since the rate is fixed.
+- **Net trade-off as it stands:** TX = no heap, fully deterministic; RX = small heap
+  allocations, recomputed on every rate change rather than to a constant result.
 
-**Nuance:** "RX designs at runtime, TX is fixed" over-simplifies. RX is itself a hybrid — only
-RX *decimation* is fully runtime (harris-sized). RX *interpolation* uses **fixed tap counts
-(48 and 32)** with coefficients still computed at runtime by `CalcFIRCoeffs`
-(`DSP_FFT.cpp:401-403`). The cleaner framing is: **RX computes its coefficients at boot; TX
-stores them as constants** — both at 192 kHz today.
+**Nuance:** "RX designs at runtime, TX is fixed" over-simplifies, and after
+[[runtime-filter-design]] it is the wrong axis entirely. RX is itself a hybrid — only RX
+*decimation* is fully runtime (harris-sized); RX *interpolation* uses **fixed tap counts (48 and
+32)** with coefficients still computed at runtime by `CalcFIRCoeffs` (`DSP_FFT.cpp:401-403`).
+
+The framing that actually predicts behaviour is **how a stage's corner is specified**:
+
+| Specification | Behaviour under a rate change | Action taken |
+|---|---|---|
+| **Fraction of Fs** — decimation, interpolation, Hilbert, [[zoom-fft]] | corner scales with Fs, which is *correct* for anti-alias/anti-image | left alone |
+| **Absolute Hz** — CW audio, equaliser cells, CW decoder FIR, the two TX stages around the Hilbert | corner drifts by the rate ratio, which is a **bug** | regenerated per rate ([[runtime-filter-design]]) |
 
 ## The filter-length formula (and why two stages)
 
@@ -90,6 +99,10 @@ Working it for Phoenix's RX (BW = 9 kHz, att = 90 dB):
 | Stage 2 | 2, 48 kHz | 0.125 | ≈33 | 24 kHz out | ≈0.8 M |
 | **Two-stage total** | | | ≈60 | | **≈2.1 M** |
 | Single ÷8 | 8, 192 kHz | 0.031 | ≈132 | 24 kHz out | ≈3.2 M |
+
+*(Worked at 192 ksps. The normalized quantities `Δf` and the tap counts are unchanged at
+176.4 ksps — BW is absolute so `n_fpass` shifts slightly, but the argument and the ≈5× ratio
+hold.)*
 
 A single ÷8 stage needs a far sharper (5×) filter because its transition band is squeezed
 against the *final* 12 kHz Nyquist while still running at 192 kHz. Splitting lets the first
@@ -112,8 +125,12 @@ formula, not read from code; exact values depend on integer rounding.)*
 - **TX fixed taps vs RX runtime harris.** Primarily **heritage**, not a deliberate
   determinism/latency choice: the fixed 48-tap tables are legacy DD4WH coefficients (the arrays
   are even named/commented "RXfilters", `DSP_FIR.cpp:174-175`) reused wholesale by the TX path,
-  while RX *decimation* was refactored into the parametrized harris-formula design. The runtime
-  path's rate-independence is currently dormant — `SampleRate` is fixed at 192 kHz
-  (`Globals.cpp:106`, never reassigned), so RX recomputes the same coeffs every boot. RX is
+  while RX *decimation* was refactored into the parametrized harris-formula design. RX is
   itself a hybrid (decimation runtime-sized; interpolation fixed 48/32 taps,
   `DSP_FFT.cpp:401-403`). *(resolved 2026-06-14)*
+  - ⚠️ **Superseded in part 2026-07-29.** The original resolution added that the rate-independence
+    was "dormant — `SampleRate` is fixed at 192 kHz, so RX recomputes the same coeffs every
+    boot". `rx-dsp-176k-stage-test` made the rate switchable at run time
+    ([[sample-rate-switching]]) and regenerated the Hz-specified filters
+    ([[runtime-filter-design]]), so that clause no longer holds. The heritage explanation for
+    the *asymmetry* still stands; the "dormant" characterisation does not.

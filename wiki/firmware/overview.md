@@ -3,10 +3,10 @@ title: Firmware Architecture Overview
 type: overview
 status: draft
 created: 2026-06-08
-updated: 2026-06-08
+updated: 2026-07-29
 tags: [architecture, state-machines, dsp, teensy]
 source_refs: []
-related: ["[[main-loop]]", "[[mode-state-machine]]", "[[ui-state-machine]]", "[[tune-frequency-control]]", "[[hardware-state-machine]]", "[[rf-board]]", "[[filter-boards]]", "[[dsp-chain]]", "[[display-subsystem]]", "[[front-panel]]", "[[cat-control]]", "[[persistent-config]]", "[[code-heritage]]", "[[hardware-platform]]", "[[i2c-bus-map]]"]
+related: ["[[main-loop]]", "[[mode-state-machine]]", "[[ui-state-machine]]", "[[tune-frequency-control]]", "[[hardware-state-machine]]", "[[rf-board]]", "[[filter-boards]]", "[[dsp-chain]]", "[[display-subsystem]]", "[[front-panel]]", "[[cat-control]]", "[[persistent-config]]", "[[code-heritage]]", "[[hardware-platform]]", "[[i2c-bus-map]]", "[[sample-rate-switching]]", "[[runtime-filter-design]]"]
 ---
 
 # Firmware Architecture Overview
@@ -113,7 +113,8 @@ screens), [[ui-state-machine]].
 
 - **MCU**: Teensy 4.1 (ARM Cortex-M7, 600 MHz)
 - **RF**: Si5351 clock generator for quadrature VFO; relay-switched BPF/LPF banks
-- **Audio**: real-time 48/96/192 kHz via the OpenAudio_ArduinoLibrary
+- **Audio**: real-time via the OpenAudio_ArduinoLibrary; raw rate **192 kHz** default or
+  **176.4 kHz**, selectable at run time and persisted ([[sample-rate-switching]])
 - **Display**: RA8875-driven TFT
 - **Front panel I/O**: MCP23017 I²C GPIO expanders; rotary encoders
 

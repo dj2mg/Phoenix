@@ -3,10 +3,10 @@ title: Phoenix Wiki Index
 type: index
 status: stub
 created: 2026-06-08
-updated: 2026-06-16
+updated: 2026-07-29
 ---
 
-<!-- updated 2026-06-16: 44 content pages (firmware 22, theory 12, hardware 4, roadmap 6) + 1 source (7 schematics); added firmware/rapid-tune-mute-freeze (encoder-i2c-speed: mute audio + freeze spectrum / move only the tuning bar during fast tuning), cross-linked from front-panel/tune-frequency-control/display-subsystem/main-loop/spectrum-refresh-floor. Earlier: split board *electronics* into hardware/rf-board-electronics + hardware/filter-board-electronics; lint clean; deci→centi-Hz; added firmware/audio-io. -->
+<!-- updated 2026-07-29: 47 content pages (firmware 25, theory 12, hardware 4, roadmap 6) + 1 source (7 schematics); V1.4RC merge brought the rx-dsp-176k-stage-test work in. Added firmware/sample-rate-switching, firmware/runtime-filter-design, firmware/filter-hil-test. Corrected the now-false "SampleRate is never reassigned / rate-independence is dormant" claim in theory/multirate-decimation (+ documentation-todos). Earlier: added firmware/rapid-tune-mute-freeze; split board *electronics* into hardware/rf-board-electronics + hardware/filter-board-electronics; deci→centi-Hz; added firmware/audio-io. -->
 
 
 # Phoenix Wiki — Index
@@ -26,6 +26,11 @@ _Modules, architecture, state machines, DSP chains, design decisions, code herit
 - [[spectrum-refresh-floor]] — why refresh ≈ NCHUNKS×T_loop; the 11.7→18.8 fps optimization. *(draft)*
 - [[rapid-tune-mute-freeze]] — `MUTE_ON_RAPID_TUNE`: mute audio + freeze spectrum on fast tuning; Fine Tune keeps only the blue bar moving. *(draft)*
 - [[code-heritage]] — lineage from DD4WH Teensy Convolution SDR; contributor list; GPLv3.
+
+**Sample rate & filter design** _(V1.4.0)_
+- [[sample-rate-switching]] — 192 / 176.4 ksps selectable at run time and persisted; `ChangeSampleRate()`, the Fs/4 dial compensation, menu + `SR` CAT paths. *(draft)*
+- [[runtime-filter-design]] — Hz-specified filters regenerated per rate from recovered analog prototypes; why prewarping is the load-bearing part; the TX decimate-by-2 aliasing fix. *(draft)*
+- [[filter-hil-test]] — bench measurement of the above on the real radio; the `|Fs/4 + fineTune|` injection trap and the AGC-off requirement. *(draft)*
 
 **State machines**
 - [[mode-state-machine]] — ModeSm: SSB/CW × RX/TX, iambic keyer, calibration entry (generated). *(draft)*
@@ -48,7 +53,7 @@ _Modules, architecture, state machines, DSP chains, design decisions, code herit
 
 **Control flow & config**
 - [[main-loop]] — Loop.cpp: `loop()` sequence + interrupt FIFO + CW key/PTT handling.
-- [[cat-control]] — CAT.cpp: Kenwood (TS-480/2000) emulation, 25-command dispatch table on SerialUSB1; +custom ED/PR dumps. *(draft)*
+- [[cat-control]] — CAT.cpp: Kenwood (TS-480) emulation, **29**-command dispatch table on SerialUSB1; custom ED/PR dumps + SR/CF/EQ/FL DSP settings; the `MD` sideband-mirroring fix. *(draft)*
 - [[persistent-config]] — the `ED` struct (single source of truth) → JSON on LittleFS+SD; Config.h/Globals/ParamSave. *(draft)*
 
 ## Theory
@@ -59,14 +64,14 @@ fundamentals (no copy of the Purdum & Peter book). Code claims cited `file:line`
 - [[iq-quadrature-sampling]] — complex baseband; sign-of-frequency; image problem. *(draft)*
 - [[ssb-phasing-method]] — SSB by phasing: ±45° Hilbert TX pair + freq-domain RX. *(draft)*
 - [[fast-convolution-filtering]] — FFT overlap-save channel filter; the Convolution-SDR core. *(draft)*
-- [[multirate-decimation]] — ÷8 RX / ÷16 TX polyphase rate changes; tap-count tradeoff. *(draft)*
+- [[multirate-decimation]] — ÷8 RX / ÷16 TX polyphase rate changes; tap-count tradeoff; Hz-specified vs Fs-fraction stages. *(draft)*
 - [[iq-imbalance-correction]] — per-band amp/phase correction & 3-pass calibration sweep. *(draft)*
 - [[agc-design]] — wdsp look-ahead AGC: ring-buffer attack, hang state machine. *(draft)*
 - [[noise-reduction]] — Kim / MMSE-spectral / LMS-notch NR. *(draft)*
 - [[synchronous-am-detection]] — SAM: PLL carrier recovery for fade-robust AM. *(draft)*
-- [[audio-equalizer]] — 14-band parallel filterbank (RX + TX audio). *(draft)*
+- [[audio-equalizer]] — 14-band parallel filterbank (RX + TX audio); centre-frequency table; cells generated per rate. *(draft)*
 - [[tx-carrier-null]] — LO-leakage suppression via per-band DC offset (distinct from image). *(draft)*
-- [[zoom-fft]] — spectrum-display zoom via IIR decimation (raw 192 kHz, 375 Hz base bin). *(draft)*
+- [[zoom-fft]] — spectrum-display zoom via IIR decimation (raw 192 kHz → 375 Hz base bin; rate-dependent). *(draft)*
 
 ## Hardware
 _The physical T41-EP platform the firmware drives: boards, chips, buses, power. Distinct from

@@ -3,10 +3,10 @@ title: DSP Chain (Audio, FFT, FIR, Noise, CW)
 type: module
 status: draft
 created: 2026-06-08
-updated: 2026-06-09
-tags: [dsp, fft, fir, agc, noise-reduction, cw, openaudio]
+updated: 2026-07-29
+tags: [dsp, fft, fir, agc, noise-reduction, cw, openaudio, sample-rate]
 source_refs: []
-related: ["[[overview]]", "[[real-time-constraints]]", "[[mode-state-machine]]", "[[display-subsystem]]", "[[code-heritage]]", "[[audio-io]]"]
+related: ["[[overview]]", "[[real-time-constraints]]", "[[mode-state-machine]]", "[[display-subsystem]]", "[[code-heritage]]", "[[audio-io]]", "[[runtime-filter-design]]", "[[sample-rate-switching]]"]
 ---
 
 # DSP Chain (Audio, FFT, FIR, Noise, CW)
@@ -39,11 +39,31 @@ Teensy Convolution SDR ([[code-heritage]]).
 Filter configuration structs (`ReceiveFilterConfig`, `TransmitFilterConfig`,
 `DecimationFilter`, `AGCConfig`) live in `SDT.h` → see [[persistent-config]].
 
+## Rebuilding the chain
+
+`InitializeSignalProcessing()` (`DSP.cpp:758-762`) builds all four filter configurations — the
+three `ReceiveFilterConfig` instances (`RXfilters` at the user's zoom, `RXTXfilters`,
+`TXIQfilters`) plus `TXfilters`. It runs at boot **and on every sample-rate change**
+([[sample-rate-switching]]), which is what regenerates the Hz-specified coefficients
+([[runtime-filter-design]]).
+
+That the three receive instances share code but not state matters: two bugs found in 2026-07
+were exactly a failure of that separation — the AM DC blocker's state was a **file-scope static
+shared across all three**, and `ApplyEQBandFilter` scrubbed the *receive* instance's state even
+when called on the transmit path.
+
+⚠️ **Transmit audio changed in V1.4.0 even at 192 ksps.** The decimate-by-2 feeding the Hilbert
+stage had a stopband that did not exist (flat to 0.425·Fs where ÷2 needs 0.25·Fs), folding
+6–9.5 kHz back into the transmitted audio. See [[runtime-filter-design]].
+
 ## Related theory
 - [[iq-quadrature-sampling]] — complex baseband, the foundation
 - [[ssb-phasing-method]] — Hilbert ±45° TX pair + frequency-domain RX sideband selection
 - [[fast-convolution-filtering]] — the FFT overlap-save channel filter (Convolution-SDR core)
 - [[multirate-decimation]] — ÷8 RX / ÷16 TX rate changes
+- [[runtime-filter-design]] — which stages are specified in Hz (regenerated per rate) vs as a
+  fraction of Fs (left alone), and why prewarping is what makes that work
+- [[filter-hil-test]] — bench verification of the above on the real radio
 - [[iq-imbalance-correction]], [[agc-design]], [[noise-reduction]], [[zoom-fft]]
 - [[synchronous-am-detection]] — SAM (PLL carrier recovery) vs envelope AM
 - [[audio-equalizer]] — 14-band parallel filterbank (RX + TX)

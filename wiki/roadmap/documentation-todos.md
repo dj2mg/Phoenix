@@ -3,10 +3,10 @@ title: Documentation TODOs & Open Questions
 type: roadmap
 status: draft
 created: 2026-06-08
-updated: 2026-06-16
+updated: 2026-07-29
 tags: [todo, open-questions, discrepancies, wiki-maintenance]
 source_refs: []
-related: ["[[index]]", "[[iq-imbalance-correction]]", "[[multirate-decimation]]", "[[noise-reduction]]", "[[fast-convolution-filtering]]", "[[dsp-chain]]"]
+related: ["[[index]]", "[[iq-imbalance-correction]]", "[[multirate-decimation]]", "[[noise-reduction]]", "[[fast-convolution-filtering]]", "[[dsp-chain]]", "[[runtime-filter-design]]", "[[sample-rate-switching]]", "[[filter-hil-test]]"]
 ---
 
 # Documentation TODOs & Open Questions
@@ -83,6 +83,9 @@ is tagged **⚠ possible bug** so it stands out.
   rate-independence is dormant — `SampleRate` is hardcoded 192 kHz (`Globals.cpp:106`, never
   reassigned), so RX recomputes identical coeffs each boot. (RX is a hybrid: decimation
   runtime-sized; interpolation fixed 48/32 taps.) → [[multirate-decimation]]
+  - ⚠ **The "dormant" half of that resolution expired 2026-07-29.** `SampleRate` is now a
+    reference to the persisted `ED.sampleRate` and is reassigned at run time
+    ([[sample-rate-switching]]). The heritage explanation for the *asymmetry* still holds.
 - **Round-trip group delay.** Measure the RX decimate→convolve→interpolate latency against the
   ~10 ms loop budget. → [[multirate-decimation]], [[real-time-constraints]]
 - **Spectrum refresh floor.** Reconcile the `.ino`'s 200 ms spectrum figure with the measured
@@ -92,6 +95,30 @@ is tagged **⚠ possible bug** so it stands out.
   in `Loop.cpp:457,818`, which does `ED.spectrum_zoom++`), *not* a zoom level. Power-on zoom is
   governed solely by `ED.spectrum_zoom` (default `1` = 2×, `SDT.h:274`; or a restored JSON
   value). → [[zoom-fft]]
+
+### DSP — rate independence (V1.4.0, merged 2026-07-29)
+- ~~**Frozen coefficient tables drift with the sample rate.**~~ — **RESOLVED (2026-07-29).** The
+  CW audio filters, equaliser cells, CW decoder FIR and the two TX stages around the Hilbert are
+  now generated per rate from recovered analog prototypes. → [[runtime-filter-design]]
+- ⚠ **Stale sidetone comment.** `DSP_CWProcessing.cpp:64` still says
+  `// phs = 2 * PI * freqSideTone / 24000` while the code below it divides by the live
+  `SR[SampleRate].rate / RXfilters->DF`. Comment-only fix; the code is correct. An earlier
+  revision of the wiki quoted the comment as if it were the code. → [[cw-processing]]
+- **AM DC blocker pole.** Made per-instance (it was a file-scope static shared across all three
+  `ReceiveFilterConfig`s), but its fixed 0.99 was not obviously revisited now that the rate can
+  change. → [[runtime-filter-design]], [[dsp-chain]]
+- **`bandtable.py` mirrors firmware constants by hand.** Nothing detects a value edited in
+  `DSP_FIR.cpp`/`Globals.cpp` without updating `code/tools/filter_hil/bandtable.py`.
+  → [[filter-hil-test]]
+- **No CAT command for AGC mode.** The one setting [[filter-hil-test]] needs and cannot set;
+  the suite refuses to run instead. → [[cat-control]]
+- **CAT `set_len` / `read_len` must differ**, or the read handler is unreachable — the bug that
+  made `FW;` write-only. Enforced by convention only; a static assertion over
+  `valid_commands[]` would catch the next one. → [[cat-control]]
+- **Rate-change interlock asymmetry.** `SR` over CAT is rejected while transmitting; the
+  front-panel menu path is not. Deliberate? → [[sample-rate-switching]], [[cat-control]]
+- **Why 176.4 ksps?** Not recorded in the commit message or `code/docs/`. Owner question.
+  → [[sample-rate-switching]]
 
 ### Units / naming
 - ~~**VFO frequency unit mislabeled.**~~ — **FULLY RESOLVED (2026-06-16).** First the `RFBoard.h`
@@ -147,9 +174,15 @@ is tagged **⚠ possible bug** so it stands out.
 ### Not yet written (new pages needed)
 - ~~**CW processing**~~ — **done** ([[cw-processing]]: audio filter, hybrid correlation+Goertzel
   tone detection, adaptive Morse decoder via flat tree + timing histograms, sidetone). Remaining:
-  reconcile the header "50–500 Hz" vs code "0.8–2.0 kHz" filter-width labels; decoder sample rate.
+  reconcile the header "50–500 Hz" vs code "840–2000 Hz" filter-width labels. *(Decoder sample
+  rate resolved 2026-07-29: the audio rate, `SR[SampleRate].rate / DF`.)*
 - ~~**Equalizer**~~ — **done** ([[audio-equalizer]]: parallel 14-band biquad filterbank, RX/TX
-  gains, alternating-sign reconstruction). Remaining: band centre-freq/Q table; gain range.
+  gains, alternating-sign reconstruction). Remaining: gain range. *(Band centre frequencies
+  tabulated 2026-07-29 from `EQ_BAND_FC_HZ[]`, which [[runtime-filter-design]] exposed as named
+  constants.)*
+- ~~**Runtime sample-rate switching**~~ — **done 2026-07-29** ([[sample-rate-switching]]).
+- ~~**Run-time filter design**~~ — **done 2026-07-29** ([[runtime-filter-design]]).
+- ~~**Filter hardware-in-the-loop test**~~ — **done 2026-07-29** ([[filter-hil-test]]).
 - ~~**Synchronous AM (SAM) detection**~~ — **done** ([[synchronous-am-detection]]: 2nd-order PLL
   carrier recovery, fade leveler, carrier-offset readout). Remaining: exact zeta/tau constants.
 - ~~**TX carrier-null calibration**~~ — **done** ([[tx-carrier-null]]: DC-offset LO-leakage

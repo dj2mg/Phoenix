@@ -3,10 +3,10 @@ title: Hardware Platform (T41-EP)
 type: hardware
 status: stable
 created: 2026-06-14
-updated: 2026-06-16
-tags: [hardware, teensy, t41-ep, board-stack, codec, i2c, platform]
+updated: 2026-07-29
+tags: [hardware, teensy, t41-ep, board-stack, codec, i2c, platform, sample-rate]
 source_refs: [sources/t41-ep-schematics]
-related: ["[[overview]]", "[[i2c-bus-map]]", "[[rf-board-electronics]]", "[[filter-board-electronics]]", "[[rf-board]]", "[[filter-boards]]", "[[front-panel]]", "[[display-subsystem]]", "[[hardware-state-machine]]", "[[audio-io]]"]
+related: ["[[overview]]", "[[i2c-bus-map]]", "[[rf-board-electronics]]", "[[filter-board-electronics]]", "[[rf-board]]", "[[filter-boards]]", "[[front-panel]]", "[[display-subsystem]]", "[[hardware-state-machine]]", "[[audio-io]]", "[[sample-rate-switching]]", "[[filter-hil-test]]"]
 ---
 
 # Hardware Platform (T41-EP)
@@ -76,9 +76,15 @@ i2s_quadIn   ch0/1 = mic L/R (Audio Board)     ch2/3 = RX I/Q (PCM1808)
 i2s_quadOut  ch0/1 = TX I/Q  (Audio Board)     ch2/3 = speaker L/R (PCM5102)
 ```
 
-I²S sample rate is PLL-configured for **48 / 96 / 192 kHz** (`SetI2SFreq`); Phoenix runs at
-**192 kHz** raw ([[multirate-decimation]], [[zoom-fft]]). Mode-based mixer routing in
+I²S sample rate is set by `SetI2SFreq()`, which computes the SAI1 PLL divider chain
+(`n1`, `n2`, fractional `C`) for an arbitrary requested rate. Phoenix offers **192 kHz**
+(default) and **176.4 kHz**, switchable at run time and persisted
+([[sample-rate-switching]], [[multirate-decimation]], [[zoom-fft]]). The three converters share
+clocks, so the rate change applies to all of them at once. Mode-based mixer routing in
 `UpdateAudioIOState()` connects mic→DSP→TX-I/Q on transmit and RX-I/Q→DSP→speaker on receive.
+
+The generated clock is not exact: [[filter-hil-test]] measures the real demodulation centre
+**≈ −180 ppm** from nominal, which is the Teensy's fractional I²S clock rather than an error.
 
 **I²S pin routing (Teensy quad-I2S, schematic-confirmed 2026-06-15).** The three clocks are
 **shared** by all three converters (U5 PCM5102, U6 PCM1808, U7 SGTL5000 adapter):

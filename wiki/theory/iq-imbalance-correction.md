@@ -3,10 +3,10 @@ title: I/Q Imbalance Correction & Image Rejection
 type: concept
 status: draft
 created: 2026-06-08
-updated: 2026-06-14
-tags: [iq, imbalance, image-rejection, calibration, amplitude, phase]
+updated: 2026-07-29
+tags: [iq, imbalance, image-rejection, calibration, amplitude, phase, sample-rate]
 source_refs: []
-related: ["[[theory-overview]]", "[[iq-quadrature-sampling]]", "[[ssb-phasing-method]]", "[[hardware-state-machine]]", "[[dsp-chain]]", "[[persistent-config]]"]
+related: ["[[theory-overview]]", "[[iq-quadrature-sampling]]", "[[ssb-phasing-method]]", "[[hardware-state-machine]]", "[[dsp-chain]]", "[[persistent-config]]", "[[sample-rate-switching]]"]
 ---
 
 # I/Q Imbalance Correction & Image Rejection
@@ -75,9 +75,12 @@ tone exactly `SampleRate/4` above it** via the cal loopback:
 SetRXVFOFrequency( band_center*100 );                       // HardwareSm.cpp:609 — LO = band center
 SetCWVFOFrequency( (band_center + SR[SampleRate].rate/4)*100 );  // line 613 — tone = LO + Fs/4
 ```
-With the default raw rate `SampleRate = SAMPLE_RATE_192K` (`Globals.cpp:106`,
-`SR[].rate = 192000`), `Fs/4 = 48 kHz` — **this is what "48 kHz above/below the LO" in the
-code comment means**; it is not arbitrary, it is the [[iq-quadrature-sampling]] Fs/4 offset.
+Both the tone placement and the bin arithmetic below are written in terms of `Fs`, so they
+follow the rate automatically ([[sample-rate-switching]]). Worked here at the default
+**192 ksps** (`SR[].rate = 192000`), where `Fs/4 = 48 kHz` — **this is what "48 kHz above/below
+the LO" in the code comment means**; it is not arbitrary, it is the [[iq-quadrature-sampling]]
+Fs/4 offset. At 176.4 ksps the same expressions give 44.1 kHz, and every bin index below is
+unchanged, because the tone offset and the bin width scale together.
 
 The measurement uses the **512-bin spectrum-display FFT** (`psdnew[SPECTRUM_RES]`,
 `SPECTRUM_RES = 512`), *not* the 24 kHz baseband. Cal forces **`spectrum_zoom = 0` (1×)**

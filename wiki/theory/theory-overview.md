@@ -3,10 +3,10 @@ title: DSP / SDR Theory — Overview
 type: overview
 status: draft
 created: 2026-06-08
-updated: 2026-06-08
-tags: [dsp, sdr, theory, iq, ssb, filtering]
+updated: 2026-07-29
+tags: [dsp, sdr, theory, iq, ssb, filtering, sample-rate]
 source_refs: []
-related: ["[[iq-quadrature-sampling]]", "[[ssb-phasing-method]]", "[[fast-convolution-filtering]]", "[[multirate-decimation]]", "[[iq-imbalance-correction]]", "[[agc-design]]", "[[zoom-fft]]", "[[dsp-chain]]"]
+related: ["[[iq-quadrature-sampling]]", "[[ssb-phasing-method]]", "[[fast-convolution-filtering]]", "[[multirate-decimation]]", "[[iq-imbalance-correction]]", "[[agc-design]]", "[[zoom-fft]]", "[[dsp-chain]]", "[[sample-rate-switching]]", "[[runtime-filter-design]]"]
 ---
 
 # DSP / SDR Theory — Overview
@@ -28,11 +28,16 @@ software. Defaults (`Globals.cpp:106`, `SDT.h`):
 
 | Quantity | Value | Where |
 |---|---|---|
-| I/O sample rate | **192 kHz** | `SampleRate = SAMPLE_RATE_192K`, `Globals.cpp:106` |
-| Block size | **2048** samples (≈10.7 ms) | `READ_BUFFER_SIZE = 128×16`, `SDT.h:175-178` |
-| RX decimation | ÷4 then ÷2 = **÷8** → 24 kHz | `ReceiveFilterConfig`, `SDT.h:409-411` |
-| TX decimation | ÷4·÷2·÷2 = **÷16** → 12 kHz | `TransmitFilterConfig`, `SDT.h:537-553` |
+| I/O sample rate | **192 kHz** default, **176.4 kHz** selectable | `SampleRate` → `ED.sampleRate`, `Globals.cpp:106-109`, `SDT.h:287` |
+| Block size | **2048** samples (≈10.7 ms @192k) | `READ_BUFFER_SIZE = 128×16`, `SDT.h:175-178` |
+| RX decimation | ÷4 then ÷2 = **÷8** → 24 / 22.05 kHz | `ReceiveFilterConfig`, `SDT.h:409-411` |
+| TX decimation | ÷4·÷2·÷2 = **÷16** → 12 / 11.025 kHz | `TransmitFilterConfig`, `SDT.h:537-553` |
 | FFT length | **512** | `FFT_LENGTH = SPECTRUM_RES`, `SDT.h:145-146` |
+
+⚠️ The rate is **no longer fixed at boot** — it is user-selectable and persisted
+([[sample-rate-switching]]). Every derived figure on this page and its children that is quoted
+in Hz rather than as a fraction of Fs is a *192 ksps* figure; at 176.4 ksps multiply by
+`176400/192000 = 0.91875`.
 
 This block size is exactly the ~10 ms real-time budget the firmware is built around — see
 [[real-time-constraints]].
@@ -58,6 +63,11 @@ This block size is exactly the ~10 ms real-time budget the firmware is built aro
 10. **[[audio-equalizer]]** — 14-band parallel filterbank shaping RX and TX audio.
 
 Plus CW receive (filter + adaptive Morse decoder) in [[cw-processing]] (a firmware page).
+
+**Rate independence** cuts across all of these: a filter specified as a *fraction of Fs* is
+already correct at any rate, while one specified in *Hz* drifts with the rate unless it is
+regenerated. [[runtime-filter-design]] is the page on which stages are which, and why
+prewarping the bilinear transform is what makes the difference.
 
 ## How theory maps to firmware
 

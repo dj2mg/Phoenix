@@ -3,10 +3,10 @@ title: Zoom FFT (Spectrum Display)
 type: concept
 status: draft
 created: 2026-06-08
-updated: 2026-06-14
-tags: [fft, zoom, spectrum, waterfall, decimation, display, psd]
+updated: 2026-07-29
+tags: [fft, zoom, spectrum, waterfall, decimation, display, psd, sample-rate]
 source_refs: []
-related: ["[[theory-overview]]", "[[fast-convolution-filtering]]", "[[multirate-decimation]]", "[[display-subsystem]]", "[[dsp-chain]]", "[[real-time-constraints]]"]
+related: ["[[theory-overview]]", "[[fast-convolution-filtering]]", "[[multirate-decimation]]", "[[display-subsystem]]", "[[dsp-chain]]", "[[real-time-constraints]]", "[[sample-rate-switching]]", "[[runtime-filter-design]]"]
 ---
 
 # Zoom FFT (Spectrum Display)
@@ -18,10 +18,12 @@ same 512 bins cover proportionally less bandwidth. Implementation: `ZoomFFTExe()
 `psdnew` array consumed by the [[display-subsystem]].
 
 ## Two different spectra — don't confuse them
-- **Band spectrum / waterfall** — `ZoomFFTExe` → `psdnew`. Computed from the **raw 192 kHz
-  I/Q** (full RF span), zoomable. *This page.*
-- **Audio-passband spectrum** — computed inside `ConvolutionFilter` → `audioYPixel`, always at
-  the 24 kHz processing rate (46.875 Hz/bin). See [[fast-convolution-filtering]].
+- **Band spectrum / waterfall** — `ZoomFFTExe` → `psdnew`. Computed from the **raw I/Q**
+  (192 or 176.4 kHz, full RF span), zoomable. *This page.*
+- **Audio-passband spectrum** — computed inside `ConvolutionFilter` → `audioYPixel`, at the
+  audio processing rate (24 kHz / 46.875 Hz per bin at 192 ksps). See
+  [[fast-convolution-filtering]]. Its displayed axis span is `Fs/32`
+  (`MainBoard_DisplayHome.cpp:1301-1303`) — 6.0 kHz at 192 ksps, 5.5 kHz at 176.4 ksps.
 
 They run at different rates and serve different display panes.
 
@@ -36,16 +38,23 @@ and the bin width by `2^zoom`: you see less of the band, in more detail.
 
 `zoom_M = 1 << spectrum_zoom` (`DSP_FFT.cpp:548`):
 
-| `spectrum_zoom` | `zoom_M` | Effective Fsample | PSD bin width |
-|---|---|---|---|
-| 0 (`ZOOM_1`) | 1 | 192 kHz | **375 Hz** |
-| 1 (`ZOOM_2`) | 2 | 96 kHz | 187.5 Hz |
-| 2 (`ZOOM_4`) | 4 | 48 kHz | 93.75 Hz |
-| 3 (`ZOOM_8`) | 8 | 24 kHz | 46.875 Hz |
-| 4 (`ZOOM_16`) | 16 | 12 kHz | 23.4375 Hz |
+| `spectrum_zoom` | `zoom_M` | Effective Fsample | PSD bin width | @176.4 ksps |
+|---|---|---|---|---|
+| 0 (`ZOOM_1`) | 1 | 192 kHz | **375 Hz** | 344.5 Hz |
+| 1 (`ZOOM_2`) | 2 | 96 kHz | 187.5 Hz | 172.3 Hz |
+| 2 (`ZOOM_4`) | 4 | 48 kHz | 93.75 Hz | 86.1 Hz |
+| 3 (`ZOOM_8`) | 8 | 24 kHz | 46.875 Hz | 43.1 Hz |
+| 4 (`ZOOM_16`) | 16 | 12 kHz | 23.4375 Hz | 21.5 Hz |
 
 Note the base (zoom 1) resolution is **375 Hz/bin** = 192000/512, *not* the 46.875 Hz of the
 audio FFT — a common point of confusion since both use a 512-point transform.
+
+⚠️ **These are Fs-relative, and Fs is now user-selectable** ([[sample-rate-switching]]). The
+zoom filters are deliberately *not* regenerated on a rate change, because their corners are
+specified as a fraction of Fs and scaling with Fs is correct for anti-alias filtering
+([[runtime-filter-design]]). What does change is the numbers in this table — hence the
+spectrum's frequency ticks are now positioned via `FreqToBin()` at round frequencies rather
+than from a fixed pixel table ([[display-subsystem]]).
 
 ## How it's implemented
 

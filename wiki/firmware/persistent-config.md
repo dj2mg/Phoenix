@@ -3,10 +3,10 @@ title: Persistent Configuration (ED struct, Storage, ParamSave)
 type: module
 status: draft
 created: 2026-06-08
-updated: 2026-06-08
-tags: [config, ed-struct, littlefs, sdcard, json, persistence, globals, bands]
+updated: 2026-07-29
+tags: [config, ed-struct, littlefs, sdcard, json, persistence, globals, bands, sample-rate]
 source_refs: []
-related: ["[[overview]]", "[[main-loop]]", "[[tune-frequency-control]]", "[[hardware-state-machine]]", "[[iq-imbalance-correction]]", "[[dsp-chain]]"]
+related: ["[[overview]]", "[[main-loop]]", "[[tune-frequency-control]]", "[[hardware-state-machine]]", "[[iq-imbalance-correction]]", "[[dsp-chain]]", "[[sample-rate-switching]]"]
 ---
 
 # Persistent Configuration
@@ -21,7 +21,7 @@ operating configuration and calibration**, with sensible inline defaults. Field 
 
 | Group | Fields (selected) |
 |---|---|
-| Audio / DSP | `agc`, `audioVolume`, `rfGainAllBands_dB`, `nrOptionSelect`, `ANR_notchOn`, `currentMicGain` |
+| Audio / DSP | `agc`, `audioVolume`, `rfGainAllBands_dB`, `nrOptionSelect`, `ANR_notchOn`, `currentMicGain`, **`sampleRate`** |
 | Tuning | `activeVFO`, `currentBand[2]`, `centerFreq_Hz[2]`, `fineTuneFreq_Hz[2]`, `stepFineTune`, `freqIncrement`, `freqCorrectionFactor`, `lastFrequencies[band][3]` |
 | Modulation/CW | `modulation[2]`, `keyType`, `currentWPM`, `keyerFlip`, `CWToneIndex`, `CWFilterIndex`, `sidetoneVolume`, `decoderFlag` |
 | Spectrum/display | `spectrum_zoom`, `spectrumScale`, `spectrumNoiseFloor[band]`, `spectrumFloorAuto`, `dbm_calibration[band]` (S-meter) |
@@ -45,6 +45,15 @@ power-cal tanh fit in [[tune-frequency-control]]; the tuning fields by
 - **`Globals.cpp`** — definitions of everything declared `extern` in `SDT.h`: `ED` itself,
   `SampleRate`, the `hardwareRegister`, the state-machine instances (`modeSM`, `uiSM`, …), the
   `SR[]` sample-rate table, and the `bands[]` table. Also `ComputeDitDuration` etc.
+
+> **`SampleRate` is a reference, not a copy.** `uint8_t& SampleRate = ED.sampleRate;`
+> (`Globals.cpp:106-109`, declared `SDT.h:735`). This is how a value that hundreds of
+> `SR[SampleRate].rate` call sites read as a plain global got moved into `ED` — and hence into
+> the saved JSON (`Storage.cpp:69`, restored `:278`/`:504`) — without touching any of them.
+> Because `InitializeStorage()` runs *before* `InitializeSignalProcessing()` and
+> `InitializeAudio()` (`Globals.cpp:528-533`), the restored rate is simply in force by the time
+> the DSP chain is built; there is no separate "apply saved rate" step.
+> See [[sample-rate-switching]].
 - **`bands[]`** — per-band static data (edges `fBandLow/High_Hz`, filter cuts
   `FLoCut/FHiCut_Hz`, type `HAM_BAND`/etc., name). Read constantly by tuning, filtering, and
   the TX interlock (`IsTxAllowed`).
