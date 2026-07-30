@@ -41,6 +41,16 @@ DIAG_PORT = "/dev/ttyACM0"
 #: whole read timeout per command.
 SILENT_WRITES = {"AG", "MD", "NR", "NT", "FW", "FL", "SR", "CF", "EQ", "DB", "KS", "MG", "VX", "AI"}
 
+#: Commands that take no parameter and yet are *writes*, not reads.
+#:
+#: :meth:`Radio.send` normally infers the form from the length - a bare ``"XX;"``
+#: is a read - and that inference is right for everything in
+#: :data:`SILENT_WRITES`, whose read forms all answer. ``TX;`` and ``RX;`` break
+#: it: they are three characters long, they are writes, and ``CAT.cpp`` suppresses
+#: their empty responses, so treating them as reads costs the whole read timeout
+#: on every key and unkey.
+SILENT_SHORT_WRITES = {"TX", "RX"}
+
 #: CW sidetone offsets, from Globals.cpp. In CW receive the audio is shifted by
 #: the selected offset, so the injection frequency must include it.
 CW_TONE_OFFSETS_HZ = (400.0, 562.5, 656.5, 750.0, 843.75)
@@ -98,6 +108,10 @@ class EdSnapshot:
     current_band: list = field(default_factory=lambda: [-1, -1])
     equalizer_rec: list = field(default_factory=list)
     fine_tune_hz: list = field(default_factory=lambda: [0.0, 0.0])
+    equalizer_xmt: list = field(default_factory=list)
+    mic_gain_db: int = -99
+    power_out_ssb: list = field(default_factory=list)
+    pa_100w: int = -1
 
     @classmethod
     def parse(cls, lines: Sequence[str]) -> "EdSnapshot":
@@ -124,6 +138,8 @@ class EdSnapshot:
             )
 
         eq = [_as_int(v) for v in fields.get("equalizerRec", "").split(",") if v.strip()]
+        eq_xmt = [_as_int(v) for v in fields.get("equalizerXmt", "").split(",") if v.strip()]
+        power_ssb = [_as_float(v) for v in fields.get("powerOutSSB", "").split(",") if v.strip()]
         sr_index = _as_int(fields.get("sampleRate", ""))
 
         return cls(
@@ -144,6 +160,10 @@ class EdSnapshot:
             equalizer_rec=eq,
             fine_tune_hz=[_as_float(fields.get("fineTuneFreq_Hz[0]", ""), 0.0),
                           _as_float(fields.get("fineTuneFreq_Hz[1]", ""), 0.0)],
+            equalizer_xmt=eq_xmt,
+            mic_gain_db=_as_int(fields.get("currentMicGain", ""), -99),
+            power_out_ssb=power_ssb,
+            pa_100w=_as_int(fields.get("PA100Wactive", "")),
         )
 
     def summary(self) -> dict:
@@ -161,6 +181,10 @@ class EdSnapshot:
             "current_band": list(self.current_band),
             "equalizer_rec": list(self.equalizer_rec),
             "fine_tune_hz": list(self.fine_tune_hz),
+            "equalizer_xmt": list(self.equalizer_xmt),
+            "mic_gain_db": self.mic_gain_db,
+            "power_out_ssb": list(self.power_out_ssb),
+            "pa_100w": self.pa_100w,
         }
 
     def diff(self, other: "EdSnapshot") -> dict:
@@ -181,6 +205,23 @@ class EdSnapshot:
     @property
     def modulation_name(self) -> str:
         return MOD_NAMES.get(self.modulation[self.active_vfo], "?")
+
+    @property
+    def active_modulation(self) -> int:
+        return self.modulation[self.active_vfo]
+
+    @property
+    def active_power_ssb(self) -> float:
+        """SSB power setting for the band in use, in watts.
+
+        ``TXGain`` derives the transmit DSP gain from this, so it scales the
+        amplitude of the exciter I/Q output. It has to stay put for the duration
+        of a run or every level measured moves with it.
+        """
+        band = self.current_band[self.active_vfo]
+        if 0 <= band < len(self.power_out_ssb):
+            return self.power_out_ssb[band]
+        return float("nan")
 
     @property
     def agc_off(self) -> bool:
@@ -249,8 +290,11 @@ class Radio:
 
         if expect_reply is None:
             name = cmd[:2].upper()
-            is_read = len(cmd) == 3  # "XX;"
-            expect_reply = is_read or name not in SILENT_WRITES
+            if name in SILENT_SHORT_WRITES:
+                expect_reply = False
+            else:
+                is_read = len(cmd) == 3  # "XX;"
+                expect_reply = is_read or name not in SILENT_WRITES
 
         self.cat.reset_input_buffer()
         self.cat.write(cmd.encode("ascii"))
@@ -422,6 +466,53 @@ class Radio:
         if mod not in MOD_TO_MD:
             raise CatError(f"no MD command for modulation {mod}")
         self.send(f"MD{MOD_TO_MD[mod]};", expect_reply=False)
+
+    # -- transmit -----------------------------------------------------------
+
+    def ptt_press(self, settle_s: float = 0.5) -> None:
+        """Key the transmitter.
+
+        ``TX;`` is only honoured from ``SSB_RECEIVE`` or ``CW_RECEIVE``; from any
+        other state ``TX_write`` falls through its switch and does nothing at
+        all, silently. Callers that need to know whether the radio actually keyed
+        have to look at the exciter output, not at the CAT reply.
+        """
+        self.send("TX;", expect_reply=False)
+        time.sleep(settle_s)
+
+    def ptt_release(self, settle_s: float = 0.3) -> None:
+        """Unkey. Safe to call when already receiving."""
+        self.send("RX;", expect_reply=False)
+        time.sleep(settle_s)
+
+    def get_mic_gain_pct(self) -> int:
+        """Mic gain as the 0-100 scale the MG command uses."""
+        return int(self.expect("MG;")[2:5])
+
+    def set_mic_gain_pct(self, pct: int) -> None:
+        """Set mic gain on the MG 0-100 scale, which maps to -40..+30 dB."""
+        self.send(f"MG{int(round(max(0, min(100, pct)))):03d};", expect_reply=False)
+
+    @staticmethod
+    def mic_gain_pct_from_db(db: float) -> int:
+        """Invert the MG command's -40..+30 dB mapping."""
+        return int(round((float(db) + 40.0) * 100.0 / 70.0))
+
+    @staticmethod
+    def mic_gain_db_from_pct(pct: float) -> int:
+        """The dB value the firmware will store for an MG parameter.
+
+        ``MG_write`` truncates to an integer number of dB, so a percentage does
+        not round-trip exactly; this reproduces what the radio will end up with.
+        """
+        return int((float(pct) * 70.0 / 100.0) - 40.0)
+
+    def get_power_w(self) -> float:
+        """Requested output power, watts. Mode dependent in the firmware."""
+        return float(self.expect("PC;")[2:5])
+
+    def set_power_w(self, watts: float) -> None:
+        self.send(f"PC{int(round(watts)):03d};", expect_reply=True)
 
     def sidetone_shift_hz(self, ed: EdSnapshot, in_cw: bool) -> float:
         """Audio offset applied in CW receive, in Hz.

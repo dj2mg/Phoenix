@@ -12,6 +12,9 @@ code/test/CMakeCache.txt
 code/test/Makefile
 code/test/all_*.cmake
 code/test/all_*.a
+code/tools/*.png
+code/tools/*.csv
+code/tools/__pycache__/
 *.log
 *.bin
 *.so
