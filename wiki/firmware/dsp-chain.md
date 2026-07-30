@@ -6,7 +6,7 @@ created: 2026-06-08
 updated: 2026-07-29
 tags: [dsp, fft, fir, agc, noise-reduction, cw, openaudio, sample-rate]
 source_refs: []
-related: ["[[overview]]", "[[real-time-constraints]]", "[[mode-state-machine]]", "[[display-subsystem]]", "[[code-heritage]]", "[[audio-io]]", "[[runtime-filter-design]]", "[[sample-rate-switching]]"]
+related: ["[[overview]]", "[[real-time-constraints]]", "[[mode-state-machine]]", "[[display-subsystem]]", "[[code-heritage]]", "[[audio-io]]", "[[runtime-filter-design]]", "[[sample-rate-switching]]", "[[tx-filter-hil-test]]"]
 ---
 
 # DSP Chain (Audio, FFT, FIR, Noise, CW)
@@ -54,7 +54,22 @@ when called on the transmit path.
 
 ⚠️ **Transmit audio changed in V1.4.0 even at 192 ksps.** The decimate-by-2 feeding the Hilbert
 stage had a stopband that did not exist (flat to 0.425·Fs where ÷2 needs 0.25·Fs), folding
-6–9.5 kHz back into the transmitted audio. See [[runtime-filter-design]].
+6–9.5 kHz back into the transmitted audio. See [[runtime-filter-design]], and
+[[tx-filter-hil-test]] for the bench measurement of the fold-back.
+
+Two ordering details of `TransmitProcessing()` (`DSP.cpp:1124-1155`) that matter to anyone
+measuring the transmit chain:
+
+- **`BandEQ` runs before `TXDecimateBy2Again`** (`:1137` vs `:1140`), so the equaliser bank — whose
+  top cell is 4 kHz — attenuates high-frequency microphone input *before* the stage whose stopband
+  prevents fold-back. That makes an end-to-end fold-back test weaker evidence about the decimator
+  than it looks ([[tx-filter-hil-test]]).
+- **`Q := I` right after `TXGain`** (`arm_copy_f32(data.I, data.Q, 256)`, `:1139`), so from there
+  the chain is mono and only the microphone's **left** channel ever reaches the exciter. The
+  Hilbert pair rebuilds the quadrature relationship downstream ([[ssb-phasing-method]]).
+- **`TXGain` scales the exciter output by the requested power** (`:1101-1119`), via
+  `CalculateSSBTXGain` on `ED.powerOutSSB[band]`. Any measurement of exciter amplitude is
+  therefore only comparable at a fixed power setting.
 
 ## Related theory
 - [[iq-quadrature-sampling]] — complex baseband, the foundation

@@ -1,6 +1,6 @@
 # This repository
 
-This is a new software approach, called Phoenix, for the T41-EP radio running V12 hardware. It is a ground-up rewrite of the T41 software, which had been authored by dozens of people over the years. I have listed the known authors that left their call signs in the code in the file `code/Contributors.txt` -- please let me know if I've missed anyone!
+This is a new software approach, called Phoenix, for the T41-EP radio running V12 hardware. It is a ground-up rewrite of the T41 software, which had been authored by dozens of people over the years. I have listed the known authors that left their call signs in the code in the file `code/src/PhoenixSketch/Contributors.txt` -- please let me know if I've missed anyone!
 
 ![](images/T41_radio.png)
 
@@ -10,12 +10,13 @@ The T41-EP Software Defined Transceiver (SDT), originally designed by Al Peter-A
 
 Some of the features of the T41 V12 hardware running the Phoenix firmware:
 
-* Operation across all amateur radio bands from 160m to 6m.
+* Operation across all amateur radio bands from 160m to 4m, plus a general-coverage tuning range.
 * Controllable receive and transmit power levels in 0.5 dB steps.
 * Audio gain control via a variety of algorithms.
 * Noise reduction via a variety of algorithms.
 * Receive and transmit audio equalizers.
-* Automated receive IQ calibration routine.
+* Automated calibration routines for receive IQ balance, transmit IQ balance, transmit carrier nulling, and PA output power.
+* Selectable sample rate: 192 or 176.4 ksps, chosen at run time and persisted, with the audio filters redesigned on each change so their frequencies do not move.
 * CAT control.
 
 The T41-EP is a fully open-source radio. This repository hosts the transceiver software, licensed under GPLV3 (see LICENSE file). The hardware designs are hosted on Bill-K9HZ's [GitHub repository](https://github.com/DRWJSCHMIDT/T41/tree/main/T41_V012_Files). The primary forum for discussions on the T41-EP radio is on [Groups.io](https://groups.io/g/SoftwareControlledHamRadio/topics).
@@ -58,6 +59,78 @@ The mapping of the buttons to various functions is defined in `code/src/PhoenixS
 ![](images/Home_screen_button_map.png)
 
 # Version History
+
+## V1.4.0 Release Notes
+
+### Major New Features
+
+**Selectable Sample Rate (192 or 176.4 ksps)**
+The radio's sample rate can now be changed while it is running, from the menu or over CAT with the new `SR` command, and the choice is persisted across power cycles. `ChangeSampleRate()` reconfigures the I²S clock and rebuilds the entire DSP chain.
+
+**Audio Filters Designed at Run Time**
+This change makes a switchable sample rate possible. In prior versions several audio-rate filters shipped as coefficient tables designed offline for one audio rate (24 ksps, i.e. 192 ksps decimated by 8). Changing the sample rate without changing the filters would lead to unwanted changes in these filter edges. 
+
+The CW audio filters, the 14 equaliser cells, the CW decoder input filter, and the two transmit stages either side of the Hilbert transform are now generated from an analog design specification on every rate change. The filter families are unchanged and the original tables are kept as test fixtures so that the generator code's output filters can be checked against them. Filters whose corners are specified as a fraction of the sample rate — the decimation, interpolation, Hilbert and zoom-FFT stages — are unchanged.
+
+**Rapid-Tune Audio Mute and Spectrum Freeze**
+Spinning the Center Tune or Fine Tune encoder quickly reprograms the VFO on every pass of the main loop, producing audible glitches and a jerky spectrum. With `MUTE_ON_RAPID_TUNE` enabled (the default), rapid tuning is detected and the audio is muted and the spectrum/waterfall redraw paused until tuning stops. Comment out the `#define` in `Config.h` to restore the old behaviour.
+
+**CAT Control of the DSP Settings**
+Four new commands, bringing the table to 29: `SR` (sample rate), `CF` (CW audio filter index), `EQ` (receive equaliser cell) and `FL` (DSP filter low cut — the mirror of the existing `FW` high cut). These were added so the filters could be measured on real hardware using a script. They are not standard CAT keywords.
+
+**Hardware-in-the-Loop Filter Test Suites**
+`code/tools/filter_hil/` is an automated measurement suite for the receive DSP filters on the actual radio, at every sample rate, using an Analog Discovery 2 to inject a quadrature tone into the I/Q inputs and read the demodulated audio off the speaker.
+
+`code/tools/tx_filter_hil/` is the transmit counterpart, capturing both exciter I/Q outputs synchronously so that the audio passband and the opposite-sideband suppression come from one sweep. 
+
+**LLM-Maintained Knowledge Wiki**
+A new `wiki/` directory holds an interlinked reference covering the firmware modules, the DSP theory behind them, the hardware platform, and the development roadmap. Start at `wiki/index.md`.
+
+### Bug Fixes
+
+- **Three long-standing CAT bugs.** `MD` set the band's mode but never `ED.modulation[]`, and because `InitFilterMask()` compares the two and treats a difference as deliberate, `MD` did not change the demodulator but mirrored the receive passband. `MD1`/`MD2` could not escape CW mode, so a CAT client could enter CW and never leave. `FW;` was unreadable because the command declared equal set and read lengths, which makes the read handler unreachable. `MD4` now selects AM, which was previously unreachable.
+- **NaN values leaking out of uninitialised DMAMEM.** `ResetDSP()` existed but was never actually called during signal-processing initialisation, so the DMAMEM arrays could be read before being zeroed.
+- **The blue filter bar** on the spectrum display and the band edges on the audio display are drawn in the correct places (reported by Wolfgang Fiebig).
+- **Sidetone volume** can be adjusted again (reported by Wolfgang Fiebig).
+- **The AM DC blocker's filter state** was a file-scope static shared across all three `ReceiveFilterConfig` instances; it is now per-instance.
+- **`ApplyEQBandFilter` scrubbed** the receive equaliser's filter state even when running on the transmit path.
+
+### Under-the-Hood Changes
+
+- Frequency units renamed throughout from dHz to **cHz** (centi-Hz, Hz × 100), which is what the code always actually used.
+- Faster encoder handling, and spectrum artifacts while tuning fixed.
+- `BuildInfo.h` is stamped automatically by a pre-commit hook, which is itself versioned in the repository so every clone gets it.
+- Unit tests grown from 699 to 740, including a suite that checks each generated filter against the reference table it replaced and that every corner holds across a rate change.
+
+## V1.3 Release Notes
+
+### New Features
+
+**General Coverage Receive Band** 
+A receive-only "GEN" band covering 200 kHz to 80.8 MHz *(contributed by Michael, dj2mg)*. The band table gained a `BandType` (`HAM_BAND` / `MISC_BAND`), and `IsTxAllowed()` now guards all four transmit entry transitions in the mode state machine, so the radio cannot be keyed outside an amateur band. Low-pass filter selection is handled appropriately for non-ham bands.
+
+**Faster Spectrum and Waterfall**
+More efficient waterfall operation *(contributed by tmr4)*, and the spectrum trace is drawn in `NCHUNKS` column groups, one group per pass of the main loop. Reducing `NCHUNKS` from 8 to 6 raised the spectrum refresh rate from roughly 11.7 to 15.6 fps. The audio spectrum and the waterfall are each updated every second spectrum frame, phase-offset from one another, to keep the per-loop cost inside the budget.
+
+**Serial Time Sync**
+Send `T` followed by a 10-digit Unix UTC timestamp and a newline to the debug serial port (115200) to set both the Teensy's coin-cell-backed hardware RTC and the TimeLib clock. WSJT-X requires the clock to be within ±1 second of UTC.
+
+**Filter Band Edge Control**
+The Filter button on the front panel now toggles which band edge the Filter encoder adjusts, in addition to the existing behaviour using the Filter encoder's own button. The blue band indicator is drawn in the right place, and adjusting a band edge now catches and prevents invalid conditions.
+
+### Bug Fixes
+
+- **Noise reduction dropped audio after a cold power cycle**, caused by uninitialised DMAMEM.
+- **The BIT screen misreported dual VFO presence.**
+
+### Under-the-Hood Changes
+
+- A GitHub Actions workflow compiles the firmware on every pull request.
+- GPL headers added to all source files.
+- `BUFFER_SIZE` renamed to `USB_BUFFER_SIZE` to avoid a namespace conflict with other libraries.
+- Rotary encoder tuning tweaks *(contributed by Tom Metty, AJ8X)*.
+- ArduinoJson documented as a build dependency *(contributed by AnttiVL)*.
+- `Contributors.txt` moved to `code/src/PhoenixSketch/`.
 
 ## V1.2 Release Notes
 
@@ -127,6 +200,9 @@ The comprehensive unit tests, mocking functions, and their build files are locat
 
 * **Unit tests**: `code/test`
 
+The same directory also builds the **desktop radio simulator** (`RadioSimulator_main.cpp` → the
+`radio_simulator` target), which runs the firmware on a PC with an SDL-emulated display.
+
 Useful sketches for testing the boards as you build them are here:
 
 * **Board tests**: `code/src/BoardTest`
@@ -134,6 +210,17 @@ Useful sketches for testing the boards as you build them are here:
 The sketch for the ATTiny85 in the main board power control block is here:
 
 * **ATTiny85 power control**: `code/src/ATTiny85_On_Off`
+
+Host-side Python tooling for measuring the radio on the bench — mostly hardware-in-the-loop test
+suites driven over CAT with an Analog Discovery 2 — is here, each subdirectory with its own README:
+
+* **Bench tools**: `code/tools` (including `filter_hil/` and `tx_filter_hil/`, which measure the
+  receive and transmit DSP filters on the real radio at both sample rates)
+
+An LLM-maintained knowledge base covering the firmware, the DSP theory behind it, the hardware
+platform, and the development roadmap is here:
+
+* **Knowledge wiki**: `wiki/` — start at `wiki/index.md`
 
 ## Useful Diagrams (.drawio files)
 
@@ -150,13 +237,13 @@ These diagrams can be edited with draw.io. Some are used to generate state machi
 Phoenix SDR is built around a state machine-driven architecture that ensures deterministic hardware control. Events like button presses, CAT commands, or encoder turns are placed in an interrupt buffer and handled at a predictable point in the code, preventing state corruption. The code implements hardware abstraction for testability and modularity.
 
 1. **Separation of Concerns**: Hardware control, signal processing, and display are isolated into separate modules with clear interfaces. Hardware interfaces (RFBoard, LPFBoard, BPFBoard) provide clean APIs, allowing mocking for unit tests.
-2. **State Machine Control**: All hardware state changes flow through state machines (ModeSm, UISm, TuneSm) ensuring deterministic, predictable behavior.
+2. **State Machine Control**: All hardware state changes flow through state machines (ModeSm, UISm, HardwareSm) ensuring deterministic, predictable behavior.
 3. **Separated Display**: Display code is separated from the rest of code and reads the global state but never modifies it. As a demonstration of the display code separation, it can be disabled by commenting out a single line in `loop()` and the radio can operate without the display.
 4. **Testing and Debugging**: An extensive set of unit tests ensure that changes to the code don't cause unexpected subtle bugs. The test framework enables you to use software debuggers to exercise the radio code, greatly speeding up the process of finding and fixing most bugs.
 
 ## State machines
 
-The behavior of the radio is controlled by a set of state machines. Hardware interrupts, like button presses, are handled by the main loop and used to dispatch events to the Mode and UI state machines, as well as update the shared global configuration settings. The Mode State Machine drives two further state machines: one controls the hardware state, and the other controls the frequencies of the VFOs. The architecture of the state machines is shown in the diagram below.
+The behavior of the radio is controlled by a set of state machines. Hardware interrupts, like button presses, are handled by the main loop and used to dispatch events to the Mode and UI state machines, as well as update the shared global configuration settings. The Mode State Machine drives the hardware state machine (`HardwareSm.cpp`), which is hand-written rather than generated; it both configures the hardware and owns the VFO frequency state (`HandleTuneState`). It in turn drives the four generated calibration state machines. The architecture of the state machines is shown in the diagram below.
 
 ![](images/state_machine_architecture.png)
 
@@ -217,7 +304,8 @@ Configure the Arduino IDE to compile with the following settings:
 * 600 MHz
 * Fast with LTO
 
-You should see the following memory usage when compilation is complete:
+You should see memory usage in the region of the figures below when compilation is complete. They
+are indicative rather than exact — they move with every release, and with your `Config.h` options:
 ```
 Memory Usage on Teensy 4.1:
   FLASH: code:287164, data:75372, headers:9172   free for files:7754756
@@ -257,16 +345,16 @@ This will compile and run the unit test programs. You should see an output that 
 
 ```bash
 ...
-654/657 Test #654: PowerCalibrationTest.FitPowerCurve_RealWorldData ..............................   Passed    0.00 sec
-        Start 655: PowerCalibrationWalkthroughTest.CompleteCalibrationAllBands
-655/657 Test #655: PowerCalibrationWalkthroughTest.CompleteCalibrationAllBands ...................   Passed    1.64 sec
-        Start 656: PowerCalibrationWalkthroughTest.RemeasuringDataPoints_StateRemainsCorrect
-656/657 Test #656: PowerCalibrationWalkthroughTest.RemeasuringDataPoints_StateRemainsCorrect .....   Passed    0.44 sec
-        Start 657: PowerCalibrationWalkthroughTest.StateTransitions_ResetBehavior
-657/657 Test #657: PowerCalibrationWalkthroughTest.StateTransitions_ResetBehavior ................   Passed    0.49 sec
+737/740 Test #737: PowerCalibrationTest.FitPowerCurve_RealWorldData ..............................   Passed    0.01 sec
+        Start 738: PowerCalibrationWalkthroughTest.CompleteCalibrationAllBands
+738/740 Test #738: PowerCalibrationWalkthroughTest.CompleteCalibrationAllBands ...................   Passed    1.75 sec
+        Start 739: PowerCalibrationWalkthroughTest.RemeasuringDataPoints_StateRemainsCorrect
+739/740 Test #739: PowerCalibrationWalkthroughTest.RemeasuringDataPoints_StateRemainsCorrect .....   Passed    0.55 sec
+        Start 740: PowerCalibrationWalkthroughTest.StateTransitions_ResetBehavior
+740/740 Test #740: PowerCalibrationWalkthroughTest.StateTransitions_ResetBehavior ................   Passed    0.60 sec
 
-100% tests passed, 0 tests failed out of 657
+100% tests passed, 0 tests failed out of 740
 
-Total Test time (real) =  50.16 sec
+Total Test time (real) =  76.35 sec
 ```
 

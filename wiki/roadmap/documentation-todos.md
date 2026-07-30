@@ -6,7 +6,7 @@ created: 2026-06-08
 updated: 2026-07-29
 tags: [todo, open-questions, discrepancies, wiki-maintenance]
 source_refs: []
-related: ["[[index]]", "[[iq-imbalance-correction]]", "[[multirate-decimation]]", "[[noise-reduction]]", "[[fast-convolution-filtering]]", "[[dsp-chain]]", "[[runtime-filter-design]]", "[[sample-rate-switching]]", "[[filter-hil-test]]"]
+related: ["[[index]]", "[[iq-imbalance-correction]]", "[[multirate-decimation]]", "[[noise-reduction]]", "[[fast-convolution-filtering]]", "[[dsp-chain]]", "[[runtime-filter-design]]", "[[sample-rate-switching]]", "[[filter-hil-test]]", "[[tx-filter-hil-test]]"]
 ---
 
 # Documentation TODOs & Open Questions
@@ -108,10 +108,26 @@ is tagged **⚠ possible bug** so it stands out.
   `ReceiveFilterConfig`s), but its fixed 0.99 was not obviously revisited now that the rate can
   change. → [[runtime-filter-design]], [[dsp-chain]]
 - **`bandtable.py` mirrors firmware constants by hand.** Nothing detects a value edited in
-  `DSP_FIR.cpp`/`Globals.cpp` without updating `code/tools/filter_hil/bandtable.py`.
-  → [[filter-hil-test]]
+  `DSP_FIR.cpp`/`Globals.cpp` without updating `code/tools/filter_hil/bandtable.py` — now also
+  `code/tools/tx_filter_hil/bandtable.py`, whose `TX_AUDIO_CORNER_3DB_HZ` and `TX_STOPBAND_*` were
+  derived by evaluating the generated tap sets rather than copied.
+  → [[filter-hil-test]], [[tx-filter-hil-test]]
 - **No CAT command for AGC mode.** The one setting [[filter-hil-test]] needs and cannot set;
   the suite refuses to run instead. → [[cat-control]]
+- **No CAT command for the transmit equaliser** (`ED.equalizerXmt`) to mirror `EQ`. Deliberately
+  not added, since `S_Xmt[i].pCoeffs` and `S_Rec[i].pCoeffs` are the same array — but it would let
+  [[tx-filter-hil-test]] zero the cells and so separate the ~200 Hz composite low corner into the
+  equaliser's contribution and the mic input's AC coupling, which it currently cannot.
+  → [[cat-control]], [[audio-equalizer]]
+- ⚠ **Rate invariance is not one tolerance.** The 48-tap FIR transmit stages hold to ≈1.2 % across
+  a rate change where the IIR receive stages hold to 0.3 %, because a fixed tap count cannot place
+  a corner exactly when the normalised cutoff moves. Any future test or spec that quotes a single
+  rate-invariance figure for "the filters" will be wrong for one half.
+  → [[runtime-filter-design]], [[tx-filter-hil-test]]
+- **Transmit HIL suite not yet run on hardware.** Written, self-tested (48 tests) and validated
+  against a simulation of the real FIR cascade, but the bench numbers are outstanding — including
+  whether the 1.6 V default scope offset still matches the exciter's DC bias with the RF board
+  disconnected. → [[tx-filter-hil-test]]
 - **CAT `set_len` / `read_len` must differ**, or the read handler is unreachable — the bug that
   made `FW;` write-only. Enforced by convention only; a static assertion over
   `valid_commands[]` would catch the next one. → [[cat-control]]

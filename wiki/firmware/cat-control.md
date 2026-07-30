@@ -3,10 +3,10 @@ title: CAT Control (Kenwood emulation)
 type: module
 status: draft
 created: 2026-06-08
-updated: 2026-07-29
+updated: 2026-07-30
 tags: [cat, kenwood, ts-480, ts-2000, serial, rig-control, usb]
 source_refs: []
-related: ["[[overview]]", "[[main-loop]]", "[[mode-state-machine]]", "[[tune-frequency-control]]", "[[persistent-config]]", "[[sample-rate-switching]]", "[[filter-hil-test]]", "[[audio-equalizer]]", "[[cw-processing]]"]
+related: ["[[overview]]", "[[main-loop]]", "[[mode-state-machine]]", "[[tune-frequency-control]]", "[[persistent-config]]", "[[sample-rate-switching]]", "[[filter-hil-test]]", "[[audio-equalizer]]", "[[cw-processing]]", "[[tx-filter-hil-test]]"]
 ---
 
 # CAT Control (Kenwood emulation)
@@ -81,6 +81,62 @@ Added so [[filter-hil-test]] could drive settings that were previously **touchsc
 ⚠️ **Still no CAT command for AGC mode.** That is the one setting [[filter-hil-test]] needs and
 cannot have, so the suite refuses to run rather than setting it.
 
+There is also **no command for the transmit equaliser** (`ED.equalizerXmt`) to mirror `EQ`'s
+receive cells. [[tx-filter-hil-test]] works around it rather than adding one, because
+`S_Xmt[i].pCoeffs` and `S_Rec[i].pCoeffs` point at the *same* coefficient array
+(`DSP_FFT.cpp:402-403`) — so soloing the transmit cells would re-verify tables `EQ` already
+exposes ([[audio-equalizer]]).
+
+### ⚠️ `TX` and `RX` are silent *writes* in both their forms
+
+A trap for any CAT client, not just the test suites. Almost every command distinguishes its read
+form from its write form by **length** — a bare `XX;` is a read. `TX` and `RX` break that: a bare
+`TX;` is a **write**, and their handlers return `empty_string_p`, whose empty response
+`command_parser` suppresses. So a client that infers "3 characters ⇒ read ⇒ wait for a
+reply" **blocks for its full read timeout on every key and unkey**, waiting for something that is
+never coming. `filter_hil/radio.py` carries a `SILENT_SHORT_WRITES` set for exactly this pair.
+
+### The `TX` parameter is optional (fixed 2026-07-30)
+
+`ts_480_pc.pdf` p.21 defines the set form as `TX P1;` — P1 is `0` (normal/MIC), `1` (DTS via the
+ANI input) or `2` (TX Tune) — and states that **"if no P1 parameter is specified, P1=0 is used"**.
+All four of `TX;`, `TX0;`, `TX1;` and `TX2;` are therefore legal ways to key. Phoenix originally
+accepted only `TX;`, because the table entry was `{ "TX", 3, 0, ... }` and `command_parser`
+dispatches purely on where the semicolon falls.
+
+That was a real interoperability bug, not a pedantic one. **Hamlib** — the layer WSJT-X, fldigi and
+Pat all drive the radio through — picks the form from the PTT type: `TX;` for `RIG_PTT_ON`, `TX0;`
+for `RIG_PTT_ON_MIC`, `TX1;` for `RIG_PTT_ON_DATA`, and `RX;` to unkey. Which one a given user
+sends depends on their backend and data-mode settings, so the radio keyed for some clients and
+silently refused for others.
+
+Both entries now read `{ "TX", 3+1, 3, TX_write, TX_write }` (and likewise for `RX`, which also
+accepts the TS-2000-style `RX0;`/`RX1;`). The idiom for an **optional parameter** is to put the
+*write* function in both slots: `set_len` covers the parameterised form, `read_len` the bare one.
+There is deliberately no `TX_read` — adding one would make `TX;` read instead of key, breaking
+Hamlib's `RIG_PTT_ON` and both HIL suites, which send `TX;`/`RX;` (`filter_hil/radio.py:480`).
+`TX_write` ignores P1, so every form keys identically; Phoenix has neither a separate data input
+nor a tune mode to distinguish them.
+
+> When [[usb-audio]] (#13) resumes, note that `TX1;` is Hamlib's standard "transmit from the data
+> port" signal — which may remove the need for the non-Kenwood `UM;` command on the `usb_audio`
+> branch.
+
+The same change closed a latent defect in `command_parser`: it evaluated
+`command[ set_len - 1 ]` and `command[ read_len - 1 ]` unconditionally, and nine entries carry a
+`0` in one of those fields, so the expression became `command[-1]` — an out-of-bounds read off the
+front of `catCommand[128]`. It never crashed, but `ID;`, `IF;`, `PD;`, `ED;` and `PR;` reached
+their read handlers only because the preceding byte happened not to be `';'`. Both tests are now
+guarded with `> 0`.
+
+⚠️ **Test the dispatcher, not just the handler.** `CAT_test.cpp` already asserted that TX accepted
+`TX;`, `TX0;` and `TX1;` — but it called `TX_write()` directly, and `TX_write` ignores its
+argument. The tests passed for the entire life of the bug. The regression tests added alongside
+the fix go through `command_parser()`.
+
+`PC` (power) is the opposite case worth noting alongside it: `PC_write` *does* answer, echoing
+`PC%03d;`, so it is one of the few writes that is not silent.
+
 ## Three fixes to pre-existing commands
 
 All three affected CAT users on earlier releases:
@@ -108,14 +164,19 @@ front panel**:
 - **Direct `ED` writes:** simple settings write straight to [[persistent-config]] (e.g.
   `KS_write` → `ED.currentWPM`, `CAT.cpp:475`).
 - **PTT:** `TX_write` dispatches into [[mode-state-machine]] (switches on `modeSM.state_id`),
-  so CAT PTT obeys the same TX interlocks/keying as physical PTT.
+  so CAT PTT obeys the same TX interlocks/keying as physical PTT. ⚠️ It only dispatches from
+  `SSB_RECEIVE` (→ `PTT_PRESSED`) or `CW_RECEIVE` (→ `KEY_PRESSED`); from any **other** state it
+  falls through its `switch` and does nothing at all, silently. A client cannot learn from the CAT
+  reply whether the radio actually keyed — it has to observe the hardware.
 
 Read handlers serialize state back: `IF_read` builds the long TS-480 status string (VFO freq,
 mode, RX/TX, etc.); `FA_read`/`MD_read`/`KS_read`/… each return one field.
 
 ## Open questions
 - Reconcile TS-480 (`CAT.cpp`) vs TS-2000 (`CAT.h`) and verify the `IF` status-string field
-  layout against `code/docs/ts_480_pc.pdf`.
+  layout against `code/docs/ts_480_pc.pdf`. **`TX`/`RX` were checked against p.21 on 2026-07-30**
+  (see above); the rest of the table has not been audited against the spec, and `TX`/`RX` were
+  wrong, so assume others may be too.
 - A CAT command for **AGC mode** — the remaining gap for [[filter-hil-test]], which currently
   has to demand the operator set it by hand.
 - `SR` is interlocked against transmit, but the **menu path is not** ([[sample-rate-switching]]).

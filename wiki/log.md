@@ -770,3 +770,167 @@ asking the owner, because if the answer is USB-audio resampling (22.05 kHz being
 44.1 where 24 kHz needs 147:160) it belongs on roadmap/usb-audio and changes how that feature is
 scoped. Also worth a bench follow-up: loop-budget and group delay at 176.4 vs 192 ksps, which
 [[real-time-constraints]] currently only characterises at 192.
+
+---
+
+## [2026-07-29] decision | transmit filter HIL suite + the FIR rate-independence limit
+
+**Trigger:** the human asked for a transmit-side equivalent of the receive filter HIL test
+(`code/tools/filter_hil/`), with the AD2's W1 on the microphone input and Ch1/Ch2 on the exciter
+I/Q outputs in unknown order. Built `code/tools/tx_filter_hil/` (10 modules, README, and a
+`/transmit-filter-test` skill). This entry records what the work *taught*, not the tool inventory.
+
+**New page:** [[tx-filter-hil-test]].
+
+### The load-bearing finding: rate invariance is not one number
+
+Replicating `CalcFIRCoeffs` in Python and evaluating the generated tap sets directly shows the
+two Hz-specified **transmit** stages (`TX_DECIMATE3_FC_HZ` 3500, `TX_AUDIO_LPF_FC_HZ` 3039.6)
+give a cascade −3 dB corner of **2726 Hz at 24 ksps but 2759 Hz at 22.05 ksps — +1.2 %**, on
+correct firmware. Cause: both are **48-tap** Kaiser windowed sincs, and a fixed tap count cannot
+place a corner exactly when the normalised cutoff moves; the taps quantise onto the same 48
+positions at both rates.
+
+This bounds any rate-invariance tolerance. The receive suite's 1.5 % is affordable only because
+those stages are **IIR**, bilinear-transformed from prewarped analog prototypes — a continuous
+parameter, hence the measured 0.3 %. Applying 1.5 % to the transmit stages would fail correct
+firmware, so the transmit suite uses **2.5 %**; `TransmitChain176k.AudioBandwidthHoldsAcrossRates`
+already allowed 2 % for the same reason, which corroborates it. The bug signature is still
+−8.125 %, leaving better than 3×.
+
+Filed into [[runtime-filter-design]] (new section, with the table), and referenced from
+[[filter-hil-test]] (qualifying *why* 1.5 % is affordable there) and [[multirate-decimation]].
+
+The same evaluation gave the transmit stopband profile — −21.6 dB at 3.5 kHz, **−52 dB at 4 kHz**,
+>90 dB above 4.5 kHz. That corrected a mistake in the suite: an early draft demanded 30 dB of
+out-of-band rejection at 3450 Hz, which is on the **transition skirt** and only ~20 dB down
+*correctly*. The stopband boundary is now taken as 4 kHz.
+
+### Other findings recorded
+
+- **`TX;` / `RX;` are parameterless *writes*** — three characters, no reply (handlers return
+  `empty_string_p`, which `command_parser` suppresses). Any CAT client inferring "3 chars ⇒ read"
+  blocks for a full read timeout on every key/unkey. → [[cat-control]], with the corollary that
+  `TX_write` silently does nothing outside `SSB_RECEIVE`/`CW_RECEIVE`, so the CAT reply cannot tell
+  a client whether the radio keyed.
+- **The Hilbert table is correctly *not* regenerated per rate.** Its usable band is a fraction of
+  Fs, so one fixed table is the same design at any rate and its edges are *meant* to scale. Hence
+  sideband suppression is checked against a floor, not for rate invariance — requiring it to hold
+  still in hertz would fail correct firmware. → [[ssb-phasing-method]].
+- **Sideband suppression is directly measurable** from a synchronous I/Q capture (`I + jQ`, ratio
+  of `+f` to `−f`); and `SidebandSelection()`'s USB inversion doubles as the *only* way to resolve
+  which scope probe is on I, since swapping probes and switching sideband both conjugate the
+  signal and one capture cannot distinguish them. → [[ssb-phasing-method]].
+- **`BandEQ` runs before `TXDecimateBy2Again`**, so it attenuates high mic input before the stage
+  whose stopband prevents fold-back — which makes an end-to-end fold-back test weaker evidence
+  about the decimator than it appears. Also `Q := I` after `TXGain` (chain is mono from there,
+  only mic-left matters) and `TXGain` scaling with requested power (exciter amplitude only
+  comparable at fixed power). → [[dsp-chain]].
+- **The transmit EQ cells are not independently verifiable**, because `S_Xmt[i].pCoeffs` and
+  `S_Rec[i].pCoeffs` are the *same array* — a transmit instance's only own state is `pState`. So
+  no `equalizerXmt` CAT command was added, and the cells are exercised via the composite passband
+  instead, where the ~200 Hz low corner is cell 0's. → [[audio-equalizer]], [[cat-control]].
+- **Measurement trap worth keeping:** the scope rate must not divide the radio's output rate. At
+  96 ksps a DAC image at `192000 − f` aliases to exactly `−f`, onto the mirror frequency the
+  suppression reading uses. 100 kHz is the default for that reason.
+
+**Pages updated:** runtime-filter-design (new FIR-vs-IIR section + stopband profile + bench
+verification split), filter-hil-test (companion box, tolerance qualified), cat-control (TX/RX
+write trap, missing `equalizerXmt`, `TX_write` state guard), ssb-phasing-method (Hilbert rationale
++ bench suppression measurement), multirate-decimation (FIR caveat + per-rate fold-point table),
+audio-equalizer (testability corollary), dsp-chain (TransmitProcessing ordering). index.md:
+47→48 content pages (firmware 25→26).
+
+**Open / next:** the suite has **not been run on the bench** — everything above is from tap-set
+evaluation, self-tests (48, incl. a simulated −8.125 % shift that must FAIL and must be *named*),
+and an end-to-end simulation driven by the replicated FIR cascade (correct → PASS at +1.23 %,
+frozen → FAIL). Two things to watch on the first real run: `--scope-offset` defaults to 1.6 V from
+the older `transmit_test.py`, which assumed the exciter loaded by the RF board, so the bias may
+differ with it disconnected; and the composite low corner mixes cell 0 with the mic input's AC
+coupling, which is the one case where an `equalizerXmt` command would earn its keep.
+
+---
+
+## [2026-07-29] lint | README version history — two wiki figures corrected
+
+**Trigger:** asked to audit the top-level README, then to write the missing V1.3 / V1.4.0 release
+notes. Sourcing numbers for those notes from the code and from the HIL result JSON turned up two
+errors in wiki pages.
+
+### 1. Shipped spectrum rate is 15.6 fps, not 18.8
+
+[[spectrum-refresh-floor]] recorded "**SHIPPED outcome: 11.7 → 18.8 fps**" with `NCHUNKS = 5`.
+`NCHUNKS` is **6** in the tree (`MainBoard_DisplayHome.cpp:430`) → ≈64 ms → **15.6 fps**.
+
+Traced with `git log -L`: 4 → 8 (`53ccfa9`) → 6 (`744d61d`, "15.6 fps") → 5 (`d15b17e`, "18.8 fps")
+→ **6** (`f56c8c7`). That last commit is the **V1.3 release stamp** — it also bumped `VERSION` to
+`"Phx V1.3"` — but its subject is "Add serial time sync over USB Serial port 0", and `b63f090`
+carries an identical subject the same day, so the revert rode in on what looks like a rebase
+artefact. Intent is not recoverable from the history; recorded as an open question for the owner,
+since if accidental it is a one-line change to recover 18.8 fps. The page now states the shipped
+figure and keeps the developed figure as such.
+
+### 2. HIL result summary was imprecise, and the SSB control figure was wrong
+
+[[filter-hil-test]] summarised the bench run as "every CW corner and equaliser centre within
+**0.3 %**" and the SSB control as "**0.04 %**". Recomputed from
+`results/filter_hil_20260728_204015.json` (the 95-pass run):
+
+| Group | Worst \|Δ\| |
+|---|---|
+| CW audio filters (5) | 0.033 % |
+| EQ cells excluding edge limited (11) | 0.160 % |
+| EQ cells edge limited (0, 1, 13) | 0.711 / 0.367 / 0.206 % |
+| SSB control (3 widths) | **0.093 %** |
+
+So "0.3 %" holds *only* once the edge-limited cells are set aside — and pleasingly, the three worst
+cells are exactly the three the suite already flags as edge limited, which corroborates that
+classification rather than undermining it. The SSB figure was simply wrong. Replaced the prose
+summary with the table.
+
+Deliberately **not** propagated: five other pages quote 0.3 % for receive rate invariance
+([[runtime-filter-design]], [[audio-equalizer]], [[cw-processing]], [[multirate-decimation]],
+[[tx-filter-hil-test]]). All are consistent with the 0.160 % measurable-cell figure, so they stand;
+churning them would add noise. The FIR-vs-IIR contrast in [[runtime-filter-design]] is unaffected —
+the TX ≈1.2 % is an exact tap-set evaluation, the RX 0.16 % a measurement, and the gap is real.
+
+**README changes (not wiki, recorded for traceability):** wrote the missing V1.3 and V1.4.0 release
+notes; fixed `code/Contributors.txt` → `code/src/PhoenixSketch/Contributors.txt`; removed the
+non-existent `TuneSm` from the architecture section (the tune state is `HandleTuneState` in
+`HardwareSm.cpp`); "160m to 6m" → "160m to 4m plus general coverage" (13 bands incl. GEN);
+feature list gained all four auto-calibration routines and the selectable sample rate; added
+`code/tools` and `wiki/` to File Organization; refreshed the ctest sample output 657 → 740 from a
+real run.
+
+**Open:** the `NCHUNKS` intent question above is the one item needing the owner.
+
+## [2026-07-30] decision | `TX` must accept its optional parameter (`TX0;`/`TX1;`/`TX2;`)
+
+Started as a bug in `code/tools/serial_diag.py`, which sent `TX1;` and got `?;`. The first fix
+changed the tool to send `TX;`. Checking `code/docs/ts_480_pc.pdf` p.21 showed the firmware was
+the wrong side: the set form is `TX P1;`, P1 is 0 (normal/MIC), 1 (DTS via ANI) or 2 (TX Tune),
+and **"if no P1 parameter is specified, P1=0 is used"** — so all four forms are legal.
+
+Not pedantic: Hamlib (WSJT-X, fldigi, Pat) picks the form from the PTT type — `TX;` for
+`RIG_PTT_ON`, `TX0;` for `RIG_PTT_ON_MIC`, `TX1;` for `RIG_PTT_ON_DATA` — so Phoenix keyed for
+some clients and refused for others depending on the user's data-mode settings. That matches the
+owner's recollection of it working on one OS but not another.
+
+**Decisions:** accept every P1 value and ignore it (Phoenix has neither a data input nor a tune
+mode to distinguish); also accept TS-2000-style `RX0;`/`RX1;`, which `CAT_test.cpp` already
+exercised.
+
+**Implementation:** `{ "TX", 3+1, 3, TX_write, TX_write }` and the same shape for `RX`. The idiom
+for an optional parameter is the *write* function in both slots — `set_len` the parameterised
+form, `read_len` the bare one. No `TX_read`: it would make `TX;` read instead of key, breaking
+`RIG_PTT_ON` and both HIL suites. Also guarded `command_parser`'s two length tests with `> 0`,
+closing a latent `command[-1]` out-of-bounds read affecting the nine entries with a zero length
+field (`ID`, `IF`, `PD`, `ED`, `PR` set_len 0; `BD`, `BU` read_len 0).
+
+**Method note worth keeping:** `CAT_test.cpp` already asserted TX accepted all three forms — but
+called `TX_write()` directly, and `TX_write` ignores its argument. The suite passed for the whole
+life of the bug because it never exercised the dispatcher that was rejecting them. New tests go
+through `command_parser()`; they were confirmed failing before the fix. 745/745 pass after.
+
+Updated [[cat-control]]. **Open:** the rest of the command table has never been audited against
+the spec, and `TX`/`RX` were wrong, so others may be. Noted on the page.

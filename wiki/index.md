@@ -6,7 +6,8 @@ created: 2026-06-08
 updated: 2026-07-29
 ---
 
-<!-- updated 2026-07-29: 47 content pages (firmware 25, theory 12, hardware 4, roadmap 6) + 1 source (7 schematics); V1.4RC merge brought the rx-dsp-176k-stage-test work in. Added firmware/sample-rate-switching, firmware/runtime-filter-design, firmware/filter-hil-test. Corrected the now-false "SampleRate is never reassigned / rate-independence is dormant" claim in theory/multirate-decimation (+ documentation-todos). Earlier: added firmware/rapid-tune-mute-freeze; split board *electronics* into hardware/rf-board-electronics + hardware/filter-board-electronics; deci→centi-Hz; added firmware/audio-io. -->
+<!-- updated 2026-07-29 (2nd pass): 48 content pages (firmware 26, theory 12, hardware 4, roadmap 6) + 1 source (7 schematics). Added firmware/tx-filter-hil-test for the new transmit HIL suite; recorded the finding that the 48-tap FIR transmit stages are only rate-independent to ~1.2 % (vs 0.3 % for the IIR receive stages) in runtime-filter-design + multirate-decimation + filter-hil-test, since it bounds any rate-invariance tolerance. Also: TX;/RX; parameterless-write trap and the missing equalizerXmt command in cat-control; Hilbert-not-regenerated rationale + bench suppression measurement in ssb-phasing-method; TransmitProcessing ordering notes in dsp-chain; TX EQ testability corollary in audio-equalizer. -->
+<!-- updated 2026-07-29: 47 content pages; V1.4RC merge brought the rx-dsp-176k-stage-test work in. Added firmware/sample-rate-switching, firmware/runtime-filter-design, firmware/filter-hil-test. Corrected the now-false "SampleRate is never reassigned / rate-independence is dormant" claim in theory/multirate-decimation (+ documentation-todos). Earlier: added firmware/rapid-tune-mute-freeze; split board *electronics* into hardware/rf-board-electronics + hardware/filter-board-electronics; deci→centi-Hz; added firmware/audio-io. -->
 
 
 # Phoenix Wiki — Index
@@ -31,6 +32,7 @@ _Modules, architecture, state machines, DSP chains, design decisions, code herit
 - [[sample-rate-switching]] — 192 / 176.4 ksps selectable at run time and persisted; `ChangeSampleRate()`, the Fs/4 dial compensation, menu + `SR` CAT paths. *(draft)*
 - [[runtime-filter-design]] — Hz-specified filters regenerated per rate from recovered analog prototypes; why prewarping is the load-bearing part; the TX decimate-by-2 aliasing fix. *(draft)*
 - [[filter-hil-test]] — bench measurement of the above on the real radio; the `|Fs/4 + fineTune|` injection trap and the AGC-off requirement. *(draft)*
+- [[tx-filter-hil-test]] — the transmit counterpart: synchronous I/Q capture off the exciter gives passband *and* sideband suppression from one sweep; why the tolerance has to be 2.5 % not 1.5 %. *(draft)*
 
 **State machines**
 - [[mode-state-machine]] — ModeSm: SSB/CW × RX/TX, iambic keyer, calibration entry (generated). *(draft)*

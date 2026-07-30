@@ -6,7 +6,7 @@ created: 2026-07-29
 updated: 2026-07-29
 tags: [test, verification, hil, analog-discovery, filters, sample-rate, cat, agc]
 source_refs: []
-related: ["[[runtime-filter-design]]", "[[sample-rate-switching]]", "[[cat-control]]", "[[dsp-chain]]", "[[agc-design]]", "[[tune-frequency-control]]", "[[iq-quadrature-sampling]]"]
+related: ["[[tx-filter-hil-test]]", "[[runtime-filter-design]]", "[[sample-rate-switching]]", "[[cat-control]]", "[[dsp-chain]]", "[[agc-design]]", "[[tune-frequency-control]]", "[[iq-quadrature-sampling]]"]
 ---
 
 # Filter Hardware-in-the-Loop Test
@@ -17,6 +17,11 @@ because [[runtime-filter-design]] was otherwise only verified in simulation.
 
 Full operating instructions live in `code/tools/filter_hil/README.md`. This page records the
 parts worth knowing without reading it: the method, the two traps, and the result.
+
+> **Companion suite:** [[tx-filter-hil-test]] does the same job for the transmit chain. Different
+> wiring, and a different method — nothing in the transmit chain can be bypassed over CAT, so it
+> measures composite responses rather than differences. The two share this suite's CAT plumbing
+> (`filter_hil/radio.py`) and its scalar curve fitting (`filter_hil/measure.py`).
 
 ## Rig
 
@@ -89,7 +94,10 @@ the audio does not, the DSP is receiving it and the problem is downstream gain.)
 
 **Rate invariance, not absolute accuracy.** A corner measured at 192 ksps must land at the same
 frequency at 176.4 ksps. The bug moves it by **−8.125 %**; the tolerance is **1.5 %** — a factor
-of five between correct and broken. Absolute accuracy against the labelled frequency is checked
+of five between correct and broken. That figure is affordable *because these are IIR designs*,
+whose corners are placed by a continuous prewarped parameter rather than quantised onto a tap
+grid; the FIR transmit stages cannot hold better than ≈1.2 % and need a looser bound. See
+[[runtime-filter-design]]. Absolute accuracy against the labelled frequency is checked
 more loosely, because a smooth tilt anywhere in the analog path biases it without saying
 anything about the firmware.
 
@@ -100,9 +108,25 @@ with it. Their absolute tolerance is relaxed; their rate invariance is not.
 
 ## Result
 
-Measured on the bench: **95 checks passed, 0 failed.** Every CW corner and equaliser centre holds
-to within **0.3 %** across the rate change where the frozen tables moved them by 8.125 %. The SSB
-control reads **0.04 %**.
+Measured on the bench (`results/filter_hil_20260728_204015.json`): **95 checks passed, 0 failed**,
+against 8.125 % from the frozen tables.
+
+| Group | Worst \|Δ\| across the rate change |
+|---|---|
+| CW audio filters (5) | **0.033 %** (median 0.017 %) |
+| Equaliser cells, excluding edge limited (11) | **0.160 %** |
+| Equaliser cells, edge limited (0, 1, 13) | 0.711 %, 0.367 %, 0.206 % |
+| SSB filter — the control (3 widths) | **0.093 %** |
+
+The three worst cells are precisely the three the suite marks *edge limited*, which is the expected
+result rather than a blemish: cells 0 and 1 (198, 250 Hz) sit at or below the SSB low cut and cell
+13 (4000 Hz) sits in the decimation skirt, so what was measured there is partly the SSB filter, not
+the cell.
+
+⚠️ An earlier revision of this page summarised the whole result as "within 0.3 %" and the SSB
+control as "0.04 %". The first is true only once the edge-limited cells are set aside; the second
+was simply wrong. Other pages quoting **0.3 %** for the receive filters' rate invariance are
+consistent with the 0.160 % figure above and need no change.
 
 ## The suite tests itself
 

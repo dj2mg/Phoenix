@@ -6,7 +6,7 @@ created: 2026-06-08
 updated: 2026-07-29
 tags: [decimation, interpolation, multirate, polyphase, fir, sample-rate]
 source_refs: []
-related: ["[[theory-overview]]", "[[fast-convolution-filtering]]", "[[iq-quadrature-sampling]]", "[[dsp-chain]]", "[[real-time-constraints]]", "[[sample-rate-switching]]", "[[runtime-filter-design]]"]
+related: ["[[theory-overview]]", "[[fast-convolution-filtering]]", "[[iq-quadrature-sampling]]", "[[dsp-chain]]", "[[real-time-constraints]]", "[[sample-rate-switching]]", "[[runtime-filter-design]]", "[[tx-filter-hil-test]]"]
 ---
 
 # Multirate Decimation & Interpolation
@@ -79,6 +79,25 @@ The framing that actually predicts behaviour is **how a stage's corner is specif
 |---|---|---|
 | **Fraction of Fs** — decimation, interpolation, Hilbert, [[zoom-fft]] | corner scales with Fs, which is *correct* for anti-alias/anti-image | left alone |
 | **Absolute Hz** — CW audio, equaliser cells, CW decoder FIR, the two TX stages around the Hilbert | corner drifts by the rate ratio, which is a **bug** | regenerated per rate ([[runtime-filter-design]]) |
+
+⚠️ "Regenerated per rate" does not mean "identical at every rate". The two Hz-specified **TX**
+stages are 48-tap FIRs, and a fixed tap count cannot place a corner exactly when the normalised
+cutoff moves — they hold to **≈1.2 %**, against 0.3 % for the IIR receive stages. See
+[[runtime-filter-design]].
+
+### Where the TX fold point lands, per rate
+
+`TXDecimateBy2Again` is the stage whose stopband matters most, because it halves the audio rate
+and so folds everything above a quarter of it back into the transmitted audio:
+
+| Fs | Audio rate | Output Nyquist (fold point) | An 8 kHz mic tone reappears at |
+|---|---|---|---|
+| 192 ksps | 24 kHz | **6 kHz** | 4000 Hz |
+| 176.4 ksps | 22.05 kHz | **5512 Hz** | 3025 Hz |
+
+The fold frequency scales with Fs, so a bench test has to recompute where to look at each rate —
+which is what [[tx-filter-hil-test]] does. The pre-2026-07 table was flat to 0.425·Fs, i.e. it
+did not attenuate that region at all.
 
 ## The filter-length formula (and why two stages)
 

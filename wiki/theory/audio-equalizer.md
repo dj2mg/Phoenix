@@ -6,7 +6,7 @@ created: 2026-06-09
 updated: 2026-07-29
 tags: [equalizer, eq, filterbank, biquad, audio, tx, rx, sample-rate]
 source_refs: []
-related: ["[[theory-overview]]", "[[dsp-chain]]", "[[ssb-phasing-method]]", "[[display-subsystem]]", "[[persistent-config]]", "[[front-panel]]", "[[runtime-filter-design]]", "[[filter-hil-test]]", "[[cat-control]]"]
+related: ["[[theory-overview]]", "[[dsp-chain]]", "[[ssb-phasing-method]]", "[[display-subsystem]]", "[[persistent-config]]", "[[front-panel]]", "[[runtime-filter-design]]", "[[filter-hil-test]]", "[[cat-control]]", "[[tx-filter-hil-test]]"]
 ---
 
 # Audio Equalizer (14-band parallel filterbank)
@@ -64,6 +64,13 @@ unity (`EQ_BAND_GAIN[]`, `:1254-1259`).
   chains run at the same audio rate. ⚠️ That separation was **broken in practice** until 2026-07:
   `ApplyEQBandFilter` scrubbed the *receive* instance's state even on the transmit path
   ([[runtime-filter-design]]).
+  - *Testability corollary:* because the coefficients are literally the same array, verifying the
+    transmit cells' centre frequencies independently would add nothing — the only state a transmit
+    instance owns is its `pState`. This is why [[tx-filter-hil-test]] does **not** sweep them and
+    why no `EQ`-equivalent CAT command for `equalizerXmt` was added ([[cat-control]]). The transmit
+    cells are still exercised there as part of the composite passband: nothing in the transmit
+    chain is a deliberate high pass, so **the ~200 Hz low corner of the transmitted audio is set by
+    cell 0** (198.4 Hz) and moves if the cells are mis-generated.
 - **Per-band gains:** `ED.equalizerRec[14]` (RX) and `ED.equalizerXmt[14]` (TX),
   [[persistent-config]]. Stored as integers, scaled `/100` (100 = unity), default all 100 (flat).
 - **The summation** (`ApplyEQBandFilter`): each band filters `data->I` → `eqFiltBuffer`, scales

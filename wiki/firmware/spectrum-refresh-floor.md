@@ -35,7 +35,7 @@ Lowering `NCHUNKS` below 8 on the original code **broke the receiver** (IQ-queue
 negative). The dominant costs were the full-frame BTE completion blit (~13.8 ms busy-wait), the
 bandwidth-bar `fillRect`, the 512 `drawLine`s, and Pass-2 (audio-spectrum bars + S-meter).
 
-## SHIPPED outcome (2026-05-30): 11.7 → 18.8 fps
+## Outcome as developed (2026-05-30): 11.7 → 18.8 fps
 On branch `refresh_rate_update`, final config in `MainBoard_DisplayHome.cpp`:
 `NCHUNKS = 5`, `SPECTRUM_REFRESH_MS = 50`, `AUDIO_SPECTRUM_DECIMATE = 2`, `WATERFALL_DECIMATE = 2`.
 Three changes made `NCHUNKS = 5` safe:
@@ -47,6 +47,23 @@ Three changes made `NCHUNKS = 5` safe:
 Trade-off: audio-spectrum, S-meter, and waterfall update at ~9.4 fps (half the trace rate), and
 trace cadence is jittery (~43–63 ms). Reviewed live and approved. (Smoother 15.6 fps alternative:
 `NCHUNKS = 6`, `WATERFALL_DECIMATE = 1`. Full revert: `NCHUNKS = 8`, both decimates = 1.)
+
+## ⚠️ What actually shipped is 15.6 fps, not 18.8
+
+`NCHUNKS` is **6** in the tree today (`MainBoard_DisplayHome.cpp:430`), so the shipped spectrum rate
+is ≈ `6 × 10.67 ≈ 64 ms` = **15.6 fps** — the "smoother alternative" noted above, but with
+`WATERFALL_DECIMATE` left at 2 rather than the 1 that alternative specified.
+
+It was changed back from 5 to 6 in `f56c8c7`, which is the commit that also bumped
+`VERSION` to `"Phx V1.3"` — i.e. the V1.3 release stamp. That commit's subject is
+*"Add serial time sync over USB Serial port 0"*, and a near-identical commit (`b63f090`) carries
+the same subject on the same day, so the change rode in on what looks like a rebase artefact.
+
+**Whether the 5 → 6 revert was a deliberate choice at release time or accidental is not
+recoverable from the history** — the wiki previously recorded 18.8 fps as the shipped figure, which
+was wrong either way. Worth asking the owner: if it was accidental, `NCHUNKS = 5` is a one-line
+change to recover 18.8 fps; if deliberate, `WATERFALL_DECIMATE` should probably go back to 1 to
+match the alternative as characterised.
 
 ## Ruled out / remaining headroom
 - **Teensy framebuffer + `writeRect`** — ruled out: the RA8875 is on **SPI**, so a full-frame

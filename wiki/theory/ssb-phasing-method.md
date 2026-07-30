@@ -3,10 +3,10 @@ title: SSB by the Phasing (Hilbert) Method
 type: concept
 status: draft
 created: 2026-06-08
-updated: 2026-06-08
-tags: [ssb, phasing, hilbert, usb, lsb, demodulation, modulation]
+updated: 2026-07-29
+tags: [ssb, phasing, hilbert, usb, lsb, demodulation, modulation, sample-rate, hil]
 source_refs: []
-related: ["[[theory-overview]]", "[[iq-quadrature-sampling]]", "[[fast-convolution-filtering]]", "[[dsp-chain]]", "[[mode-state-machine]]"]
+related: ["[[theory-overview]]", "[[iq-quadrature-sampling]]", "[[fast-convolution-filtering]]", "[[dsp-chain]]", "[[mode-state-machine]]", "[[tx-filter-hil-test]]", "[[runtime-filter-design]]", "[[iq-imbalance-correction]]"]
 ---
 
 # SSB by the Phasing (Hilbert) Method
@@ -54,6 +54,33 @@ Key implementation details:
   the default (`DSP_FFT.cpp:864-869`).
 - The quadrature pair is then interpolated back to 192 kHz and sent to the codec → Si5351
   quadrature mixer on the [[rf-board]].
+
+⚠️ **The Hilbert table is deliberately *not* regenerated per sample rate**, and that is correct
+rather than an oversight. A Hilbert transformer's usable band is a **fraction of its sample
+rate**, so one fixed 100-tap table is the same design at any rate — its band edges are *meant* to
+scale with Fs, exactly like an anti-alias filter's ([[runtime-filter-design]]). At 176.4 ksps the
+Hilbert runs at 11.025 kHz instead of 12 kHz and its ~5 kHz band shrinks in proportion, which
+costs nothing because the transmit audio bandwidth is only 2.76 kHz. This is why
+[[tx-filter-hil-test]] checks sideband suppression against a **floor** rather than for rate
+invariance in hertz: requiring the suppression curve to hold still would fail correct firmware.
+
+## Measuring sideband suppression on the bench
+
+The transmit output is complex baseband, so suppression is directly observable: capture I and Q
+**synchronously**, form `I + jQ`, and read the ratio of the line at `+f` to the one at `−f`. Both
+come out of a single capture. Two separate single-channel captures would have no defined phase
+relationship between them and the ratio would be meaningless — the sideband information lives
+entirely in the phase *between* the channels.
+
+The `SidebandSelection()` sign flip also has a use the firmware never intended: because
+commanding USB conjugates the transmitted signal, it moves the tone to the other side of DC.
+Swapping the two scope probes does the same thing, so a single capture cannot tell the two apart —
+but the **change** between LSB and USB can, since nobody rewires the bench mid-measurement. That
+is how [[tx-filter-hil-test]] resolves which probe is on I without being told.
+
+Note this measurement cannot separate the Hilbert pair's phase accuracy from
+[[iq-imbalance-correction]]'s per-band amplitude/phase correction, or from a plain gain difference
+between the two exciter outputs. From the exciter's terminals all three look identical.
 
 ## Receive path — phasing done in the frequency domain
 

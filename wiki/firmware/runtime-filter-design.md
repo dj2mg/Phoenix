@@ -6,7 +6,7 @@ created: 2026-07-29
 updated: 2026-07-29
 tags: [dsp, filters, chebyshev, bilinear, prewarp, equalizer, cw, sample-rate, iir, fir]
 source_refs: []
-related: ["[[sample-rate-switching]]", "[[dsp-chain]]", "[[cw-processing]]", "[[audio-equalizer]]", "[[multirate-decimation]]", "[[filter-hil-test]]", "[[ssb-phasing-method]]", "[[theory-overview]]"]
+related: ["[[sample-rate-switching]]", "[[dsp-chain]]", "[[cw-processing]]", "[[audio-equalizer]]", "[[multirate-decimation]]", "[[filter-hil-test]]", "[[tx-filter-hil-test]]", "[[ssb-phasing-method]]", "[[theory-overview]]"]
 ---
 
 # Run-Time Filter Design (rate-independent coefficients)
@@ -94,6 +94,36 @@ not the raw rate. A decimating FIR filters at its input rate and an interpolatin
 output rate; for both transmit stages that rate is the audio rate, not the 12 ksps the Hilbert
 transform between them runs at (`DSP_FIR.cpp:1363-1365`).
 
+## ⚠️ The FIR stages are only rate-independent to ≈1.2 %, the IIR ones to 0.3 %
+
+The two generated **transmit** stages are 48-tap Kaiser-Bessel windowed sincs, and a 48-tap FIR
+**does not scale exactly** when its normalised cutoff changes. The taps are quantised to the same
+48 positions at both rates, so the realised corner lands in a slightly different place even though
+the design specification is identical. Evaluating the generated tap sets directly (cascade of
+`TX_DECIMATE3_FC_HZ` and `TX_AUDIO_LPF_FC_HZ`):
+
+| Audio rate | Cascade −3 dB | −6 dB |
+|---|---|---|
+| 24 ksps (192 ksps) | **2726 Hz** | 2952 Hz |
+| 22.05 ksps (176.4 ksps) | **2759 Hz** | 2969 Hz |
+
+**= +1.2 %, on correct firmware.** `TransmitChain176k.AudioBandwidthHoldsAcrossRates` allows 2 %
+for exactly this reason, and it is why [[tx-filter-hil-test]] uses a 2.5 % tolerance where
+[[filter-hil-test]] uses 1.5 %.
+
+The receive filters do not share this limitation: they are **IIR** cascades bilinear-transformed
+from prewarped analog prototypes, so the corner is placed by a continuous parameter rather than
+quantised onto a tap grid — which is why they measure to within 0.3 % on the bench. The prewarping
+described above is what buys that.
+
+The practical consequence: **rate invariance is not a single number across the whole firmware.**
+A tolerance tight enough for the IIR stages will fail the FIR ones. Both are still an order of
+magnitude clear of the 8.125 % the frozen tables produced.
+
+The same tap-set evaluation gives the transmit cascade's stopband profile — −21.6 dB at 3.5 kHz,
+**−52 dB at 4 kHz**, better than −90 dB above 4.5 kHz — which is what fixes where an out-of-band
+rejection test can legitimately be gated. See [[tx-filter-hil-test]].
+
 ## Deliberately *not* generated
 
 The decimation, interpolation, Hilbert and [[zoom-fft]] filters are left alone. Their corners
@@ -113,7 +143,9 @@ already correct"**.
   3.5 kHz (`TX_DECIMATE3_FC_HZ`, `DSP_FIR.cpp:1296`), which sits above the 2.76 kHz the audio
   bandwidth filter passes and so costs no wanted signal. **Transmitted audio therefore differs
   from previous releases even at 192 ksps** — the one user-visible behaviour change in this work
-  that is not a rate-change effect.
+  that is not a rate-change effect. [[tx-filter-hil-test]] measures the fold-back directly on the
+  bench, with the caveat that `BandEQ` runs before this stage and attenuates high inputs on its
+  own.
 - **The AM DC blocker** had a fixed pole at 0.99 and, worse, its state was a **file-scope static
   shared across all three `ReceiveFilterConfig` instances**.
 - **`ApplyEQBandFilter` scrubbed the receive instance's state even on the transmit path.**
@@ -127,9 +159,13 @@ already correct"**.
 2. **Rate independence** — checks every corner holds across both rates, where the frozen tables
    moved it by 8.125 %.
 
-Both are simulation. The on-the-bench measurement is [[filter-hil-test]], which found **95
-checks passed, 0 failed**, every CW corner and equaliser centre holding to **within 0.3 %**
-across the rate change.
+Both are simulation. The on-the-bench measurements are:
+
+- **Receive** — [[filter-hil-test]] found **95 checks passed, 0 failed**, every CW corner and
+  equaliser centre holding to **within 0.3 %** across the rate change.
+- **Transmit** — [[tx-filter-hil-test]] measures the composite transmit passband corners,
+  opposite-sideband suppression, and the fold-back the `TX_DECIMATE3_FC_HZ` fix addressed.
+  Written and self-verified; **not yet run on the bench**.
 
 ## Open questions
 - The equaliser prototypes are stored to 9 decimal places as recovered floats. Nobody has
