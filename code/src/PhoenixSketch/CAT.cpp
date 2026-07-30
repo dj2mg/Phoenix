@@ -101,6 +101,11 @@ typedef struct  {
 // Note on set_len / read_len: command_parser() tests the write form FIRST, so a
 // command whose two lengths are equal can never reach its read function. Keep
 // them distinct for anything that needs to be readable.
+//
+// Note on optional parameters: a command whose parameter the spec allows to be
+// omitted is expressed by putting the *write* function in BOTH slots, with
+// set_len covering the parameterised form and read_len the bare one. TX and RX
+// below are the only such commands. Do not "fix" them by writing a read handler.
 #define NUM_SUPPORTED_COMMANDS 29
 valid_command valid_commands[ NUM_SUPPORTED_COMMANDS ] =
     {
@@ -124,8 +129,16 @@ valid_command valid_commands[ NUM_SUPPORTED_COMMANDS ] =
         { "PC", 3+3,3, PC_write, PC_read }, // output power
         { "PD", 0,  3, unsupported_cmd, PD_read }, // read the PSD -- NOT a Kenwood keyword
         { "PS", 3+1,3, PS_write, PS_read },  // Rig power on/off
-        { "RX", 3,  0, RX_write, unsupported_cmd },  // Receiver function 0=main 1=sub
-        { "TX", 3,  0, TX_write, unsupported_cmd }, // set transceiver to transmit.
+        // RX; unkeys; RX0;/RX1; (main/sub receiver) are accepted too and behave
+        // identically - Phoenix has one receiver. Both forms are writes.
+        { "RX", 3+1,3, RX_write, RX_write },  // Receiver function 0=main 1=sub
+        // TX; keys, and so do TX0; (normal/MIC), TX1; (DTS via ANI input) and
+        // TX2; (TX Tune): ts_480_pc.pdf p.21 makes P1 optional and defaults it
+        // to 0. Both forms are writes - a bare TX; is a set, not a read - and
+        // TX_write ignores P1, so every form keys identically. Hamlib picks
+        // between them by PTT type (TX; / TX0; / TX1;), so a client that only
+        // sends one of them must not be turned away.
+        { "TX", 3+1,3, TX_write, TX_write }, // set transceiver to transmit.
         { "VX", 3+1, 3, VX_write, VX_read }, // VOX write/read
         { "ED", 0,  3, unsupported_cmd, ED_read }, // print out the state of the EEPROM data -- NOT a Kenwood keyword
         { "PR", 0,  3, unsupported_cmd, PR_read }, // print out the state of the hardware register -- NOT a Kenwood keyword
@@ -1057,8 +1070,13 @@ char *command_parser( char* command ){
             char* (*read_function)(char*);
             read_function = valid_commands[i].read_function;
 
-            if( command[ write_params_len - 1 ] == ';' ) return ( *write_function )( command );
-            if( command[ read_params_len - 1  ] == ';' ) return ( *read_function  )( command );
+            // A zero length means the command has no form of that kind (a
+            // read-only command has set_len 0, a write-only one read_len 0).
+            // Skip the test rather than indexing command[-1], which reads off
+            // the front of catCommand and makes dispatch depend on whatever
+            // static happens to precede it.
+            if( write_params_len > 0 && command[ write_params_len - 1 ] == ';' ) return ( *write_function )( command );
+            if( read_params_len  > 0 && command[ read_params_len - 1  ] == ';' ) return ( *read_function  )( command );
             // Wrong length for read OR write.  No semicolon in the right places
             sprintf( obuf, "?;");
             return obuf;

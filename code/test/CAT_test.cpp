@@ -2356,6 +2356,125 @@ TEST(CAT, command_parser_RecognizesTXCommands){
     EXPECT_STREQ(result, "");
 }
 
+///////////////////////////////////////////////////////////////////////////////////////////////////
+// PTT through command_parser(), with the optional TX parameter
+//
+// ts_480_pc.pdf p.21: the TX set form is "TX P1;" where P1 is 0 (normal/MIC),
+// 1 (DTS via ANI input) or 2 (TX Tune), and "if no P1 parameter is specified,
+// P1=0 is used". So TX;, TX0;, TX1; and TX2; are all valid ways to key.
+//
+// This matters in the field because Hamlib - which WSJT-X, fldigi and Pat all
+// drive the radio through - picks its form from the PTT type: TX; for
+// RIG_PTT_ON, TX0; for RIG_PTT_ON_MIC and TX1; for RIG_PTT_ON_DATA.
+//
+// These go through command_parser() deliberately. The TX_write tests above call
+// the handler directly, so they passed even while the parser was rejecting
+// TX0; and TX1; with "?;" - the handler ignores its argument, and the
+// dispatcher was the part that was wrong.
+///////////////////////////////////////////////////////////////////////////////////////////////////
+
+TEST(CAT, command_parser_TXAcceptsOptionalParameterFromSSBReceive){
+    UISm_start(&uiSM);
+    ModeSm_start(&modeSM);
+
+    const char *forms[] = { "TX;", "TX0;", "TX1;", "TX2;" };
+
+    for (const char *form : forms) {
+        modeSM.state_id = ModeSm_StateId_SSB_RECEIVE;
+
+        char cmd[8];
+        strcpy(cmd, form);
+        char *result = command_parser(cmd);
+
+        // Accepted, and silent: TX_write returns empty_string_p
+        EXPECT_STREQ(result, "") << "form " << form << " was not accepted";
+        EXPECT_EQ(modeSM.state_id, ModeSm_StateId_SSB_TRANSMIT)
+            << "form " << form << " did not key the radio";
+    }
+}
+
+TEST(CAT, command_parser_TXAcceptsOptionalParameterFromCWReceive){
+    UISm_start(&uiSM);
+    ModeSm_start(&modeSM);
+
+    const char *forms[] = { "TX;", "TX0;", "TX1;", "TX2;" };
+
+    for (const char *form : forms) {
+        modeSM.state_id = ModeSm_StateId_CW_RECEIVE;
+
+        char cmd[8];
+        strcpy(cmd, form);
+        char *result = command_parser(cmd);
+
+        EXPECT_STREQ(result, "") << "form " << form << " was not accepted";
+        EXPECT_EQ(modeSM.state_id, ModeSm_StateId_CW_TRANSMIT_MARK)
+            << "form " << form << " did not key the radio";
+    }
+}
+
+TEST(CAT, command_parser_RXAcceptsOptionalParameter){
+    UISm_start(&uiSM);
+    ModeSm_start(&modeSM);
+
+    // The TS-480 set form is a bare RX;, but TS-2000 style clients address the
+    // main/sub receiver as RX0;/RX1;. Accept all three; Phoenix has one receiver.
+    const char *forms[] = { "RX;", "RX0;", "RX1;" };
+
+    for (const char *form : forms) {
+        modeSM.state_id = ModeSm_StateId_SSB_TRANSMIT;
+
+        char cmd[8];
+        strcpy(cmd, form);
+        char *result = command_parser(cmd);
+
+        EXPECT_STREQ(result, "") << "form " << form << " was not accepted";
+        EXPECT_EQ(modeSM.state_id, ModeSm_StateId_SSB_RECEIVE)
+            << "form " << form << " did not unkey the radio";
+    }
+}
+
+TEST(CAT, command_parser_RejectsMalformedPTTCommands){
+    UISm_start(&uiSM);
+    ModeSm_start(&modeSM);
+
+    // Two parameter characters is not a form the spec defines, and accepting the
+    // optional parameter must not turn the length check into "anything goes".
+    modeSM.state_id = ModeSm_StateId_SSB_RECEIVE;
+
+    char tx_too_long[] = "TX00;";
+    EXPECT_STREQ(command_parser(tx_too_long), "?;");
+    EXPECT_EQ(modeSM.state_id, ModeSm_StateId_SSB_RECEIVE);
+
+    char rx_too_long[] = "RX00;";
+    EXPECT_STREQ(command_parser(rx_too_long), "?;");
+}
+
+TEST(CAT, command_parser_ZeroLengthFieldCommandsStillDispatch){
+    UISm_start(&uiSM);
+    ModeSm_start(&modeSM);
+    modeSM.state_id = ModeSm_StateId_SSB_RECEIVE;
+
+    // Read-only commands carry set_len 0, so the parser must not evaluate the
+    // write-length test for them - command[set_len - 1] would be command[-1].
+    // Each must reach its read handler and answer something other than "?;".
+    const char *reads[] = { "ID;", "IF;", "PD;", "ED;", "PR;" };
+
+    for (const char *form : reads) {
+        char cmd[8];
+        strcpy(cmd, form);
+        char *result = command_parser(cmd);
+
+        EXPECT_STRNE(result, "?;") << "read command " << form << " was rejected";
+        EXPECT_NE(result[0], '\0') << "read command " << form << " answered nothing";
+    }
+
+    // The mirror case: band up/down are writes with read_len 0.
+    char bd[] = "BD;";
+    EXPECT_STRNE(command_parser(bd), "?;");
+    char bu[] = "BU;";
+    EXPECT_STRNE(command_parser(bu), "?;");
+}
+
 // ============================================================================
 // Commands added for the hardware-in-the-loop filter test suite
 //
