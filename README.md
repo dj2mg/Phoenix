@@ -17,6 +17,7 @@ Some of the features of the T41 V12 hardware running the Phoenix firmware:
 * Receive and transmit audio equalizers.
 * Automated calibration routines for receive IQ balance, transmit IQ balance, transmit carrier nulling, and PA output power.
 * Selectable sample rate: 192 or 176.4 ksps, chosen at run time and persisted, with the audio filters redesigned on each change so their frequencies do not move.
+* Digital mode: bi-directional USB audio for FT8 and the other WSJT-X modes, with no external sound card and no resampling.
 * CAT control.
 
 The T41-EP is a fully open-source radio. This repository hosts the transceiver software, licensed under GPLV3 (see LICENSE file). The hardware designs are hosted on Bill-K9HZ's [GitHub repository](https://github.com/DRWJSCHMIDT/T41/tree/main/T41_V012_Files). The primary forum for discussions on the T41-EP radio is on [Groups.io](https://groups.io/g/SoftwareControlledHamRadio/topics).
@@ -64,6 +65,13 @@ The mapping of the buttons to various functions is defined in `code/src/PhoenixS
 
 ### Major New Features
 
+**Digital Mode: USB Audio for FT8 and the Other WSJT-X Modes**
+A third operating mode alongside SSB and CW. In receive the demodulated audio is streamed to the PC over USB audio (and still to the speaker); in transmit the audio source is the PC instead of the microphone. Enter it by cycling the mode button (SSB → CW → DIGITAL) or with the new `DG` CAT command; WSJT-X keys the radio over CAT in the normal way.
+
+No resampler and no modified Teensy core file are needed, because at 176.4 ksps the receive chain's Fs/4 audio tap *is* 44,100 Hz — the fixed rate of the Teensy USB audio endpoint — and the audio library's graph clock is exactly 4× the USB block rate. Entering digital mode therefore forces 176.4 ksps and leaving restores the previous rate. `USBAudio.cpp` keeps the stock `AudioInputUSB`/`AudioOutputUSB` objects but drives them from a 4:1 pacer rather than from the I²S-clocked audio graph.
+
+This mode requires the **Serial + MIDI + Audio** USB type (see the Arduino build settings below). In a build without a USB audio interface the firmware compiles and runs exactly as before, with the DIGITAL leg simply absent from the mode cycle.
+
 **Selectable Sample Rate (192 or 176.4 ksps)**
 The radio's sample rate can now be changed while it is running, from the menu or over CAT with the new `SR` command, and the choice is persisted across power cycles. `ChangeSampleRate()` reconfigures the I²S clock and rebuilds the entire DSP chain.
 
@@ -75,8 +83,8 @@ The CW audio filters, the 14 equaliser cells, the CW decoder input filter, and t
 **Rapid-Tune Audio Mute and Spectrum Freeze**
 Spinning the Center Tune or Fine Tune encoder quickly reprograms the VFO on every pass of the main loop, producing audible glitches and a jerky spectrum. With `MUTE_ON_RAPID_TUNE` enabled (the default), rapid tuning is detected and the audio is muted and the spectrum/waterfall redraw paused until tuning stops. Comment out the `#define` in `Config.h` to restore the old behaviour.
 
-**CAT Control of the DSP Settings**
-Four new commands, bringing the table to 29: `SR` (sample rate), `CF` (CW audio filter index), `EQ` (receive equaliser cell) and `FL` (DSP filter low cut — the mirror of the existing `FW` high cut). These were added so the filters could be measured on real hardware using a script. They are not standard CAT keywords.
+**CAT Control of the DSP Settings and Digital Mode**
+Seven new commands, bringing the table to 32. Four control the DSP: `SR` (sample rate), `CF` (CW audio filter index), `EQ` (receive equaliser cell) and `FL` (DSP filter low cut — the mirror of the existing `FW` high cut); these were added so the filters could be measured on real hardware using a script. Three serve digital mode: `DG` (enter/leave), `DR` (USB receive level) and `DS` (read-only transmit-path counters). None of the seven is a standard CAT keyword.
 
 **Hardware-in-the-Loop Filter Test Suites**
 `code/tools/filter_hil/` is an automated measurement suite for the receive DSP filters on the actual radio, at every sample rate, using an Analog Discovery 2 to inject a quadrature tone into the I/Q inputs and read the demodulated audio off the speaker.
@@ -88,6 +96,9 @@ A new `wiki/` directory holds an interlinked reference covering the firmware mod
 
 ### Bug Fixes
 
+- **Sideband selection was inverted on bands whose default is the other sideband.** `SetModulation()` wrote `bands[].mode` as well as `ED.modulation[]`, but `bands[].mode` is the band *default* against which `InitFilterMask()` measures its passband mirroring. Making the default agree with the request switched the mirroring off, so on 40 m selecting USB actually tuned the radio LSB while the display went on saying USB. `MD_read`/`IF_read` read the same field and so reported the band default rather than the mode in use. This is the other half of the `MD` fix listed below: the earlier fix made `MD` write `ED.modulation[]`, this one stops it from also writing the band default that the mirroring is measured against. The front-panel DEMODULATION button was never affected — it only ever wrote `ED.modulation[]`.
+- **`TX;` without a parameter.** The TS-480 spec makes P1 optional, and Hamlib picks between `TX;`, `TX0;` and `TX1;` according to the configured PTT type, so the radio keyed for some clients and silently refused for others. All forms of `TX` and `RX` are now accepted.
+- **Digital-mode audio buffering** (found on the bench). The USB play queue was never prefilled, giving 147 dropouts per 12 s of receive; and the transmit record queue was started for all of digital mode but drained only while transmitting, so it sat at its 209-block ceiling and held roughly 418 of the 500 audio blocks. Bounding it improved transmit spurs by 47 dB — and, because it had been starving the shared audio pool, improved receive second-harmonic distortion by 17.5 dB and the receive noise floor by 16 dB.
 - **Three long-standing CAT bugs.** `MD` set the band's mode but never `ED.modulation[]`, and because `InitFilterMask()` compares the two and treats a difference as deliberate, `MD` did not change the demodulator but mirrored the receive passband. `MD1`/`MD2` could not escape CW mode, so a CAT client could enter CW and never leave. `FW;` was unreadable because the command declared equal set and read lengths, which makes the read handler unreachable. `MD4` now selects AM, which was previously unreachable.
 - **NaN values leaking out of uninitialised DMAMEM.** `ResetDSP()` existed but was never actually called during signal-processing initialisation, so the DMAMEM arrays could be read before being zeroed.
 - **The blue filter bar** on the spectrum display and the band edges on the audio display are drawn in the correct places (reported by Wolfgang Fiebig).
@@ -100,7 +111,8 @@ A new `wiki/` directory holds an interlinked reference covering the firmware mod
 - Frequency units renamed throughout from dHz to **cHz** (centi-Hz, Hz × 100), which is what the code always actually used.
 - Faster encoder handling, and spectrum artifacts while tuning fixed.
 - `BuildInfo.h` is stamped automatically by a pre-commit hook, which is itself versioned in the repository so every clone gets it.
-- Unit tests grown from 699 to 740, including a suite that checks each generated filter against the reference table it replaced and that every corner holds across a rate change.
+- Unit tests grown from 699 to 779, including a suite that checks each generated filter against the reference table it replaced and that every corner holds across a rate change, and a suite covering the digital-mode state transitions and CAT commands.
+- Two new persisted settings, `digitalDriveLevel` and `digitalRxLevel`, with menu entries under Microphone options ("USB drive", "USB RX level").
 
 ## V1.3 Release Notes
 
@@ -275,7 +287,9 @@ We don't want button presses to change the hardware state at random, unspecified
 
 ## Remote control
 
-The radio will provide two serial interfaces over USB. The first, at a baud rate of 115200, prints debug messages. The second, at a baud rate of 38400, implements CAT control with a partial implementation of the Kenwood TS-480 CAT Interface.
+Built with the **Dual Serial** USB type, the radio provides two serial interfaces over USB. The first, at a baud rate of 115200, prints debug messages. The second, at a baud rate of 38400, implements CAT control with a partial implementation of the Kenwood TS-480 CAT Interface.
+
+Built with **Serial + MIDI + Audio** — the USB type digital mode needs — Teensyduino offers only one CDC port, so CAT moves to that first (and only) port and the debug output is compiled out to keep it from corrupting the CAT stream. Point your CAT client at the first port in that configuration.
 
 
 # Build environment
@@ -300,7 +314,7 @@ The libraries to install using this process are:
 
 Configure the Arduino IDE to compile with the following settings:
 
-* Dual Serial
+* USB type: **Serial + MIDI + Audio** if you want digital mode (FT8 etc.), otherwise **Dual Serial**. See the note under Remote control above — the choice determines which port carries CAT.
 * 600 MHz
 * Fast with LTO
 
@@ -308,9 +322,9 @@ You should see memory usage in the region of the figures below when compilation 
 are indicative rather than exact — they move with every release, and with your `Config.h` options:
 ```
 Memory Usage on Teensy 4.1:
-  FLASH: code:287164, data:75372, headers:9172   free for files:7754756
-   RAM1: variables:127136, code:283976, padding:10936   free for local variables:102240
-   RAM2: variables:300480  free for malloc/new:223808
+  FLASH: code:302828, data:78444, headers:8868   free for files:7736324
+   RAM1: variables:139744, code:299672, padding:28008   free for local variables:56864
+   RAM2: variables:302528  free for malloc/new:221760
 ```
 
 ## StateSmith
@@ -345,16 +359,16 @@ This will compile and run the unit test programs. You should see an output that 
 
 ```bash
 ...
-737/740 Test #737: PowerCalibrationTest.FitPowerCurve_RealWorldData ..............................   Passed    0.01 sec
-        Start 738: PowerCalibrationWalkthroughTest.CompleteCalibrationAllBands
-738/740 Test #738: PowerCalibrationWalkthroughTest.CompleteCalibrationAllBands ...................   Passed    1.75 sec
-        Start 739: PowerCalibrationWalkthroughTest.RemeasuringDataPoints_StateRemainsCorrect
-739/740 Test #739: PowerCalibrationWalkthroughTest.RemeasuringDataPoints_StateRemainsCorrect .....   Passed    0.55 sec
-        Start 740: PowerCalibrationWalkthroughTest.StateTransitions_ResetBehavior
-740/740 Test #740: PowerCalibrationWalkthroughTest.StateTransitions_ResetBehavior ................   Passed    0.60 sec
+776/779 Test #776: PowerCalibrationTest.FitPowerCurve_RealWorldData ..............................   Passed    0.01 sec
+        Start 777: PowerCalibrationWalkthroughTest.CompleteCalibrationAllBands
+777/779 Test #777: PowerCalibrationWalkthroughTest.CompleteCalibrationAllBands ...................   Passed    1.75 sec
+        Start 778: PowerCalibrationWalkthroughTest.RemeasuringDataPoints_StateRemainsCorrect
+778/779 Test #778: PowerCalibrationWalkthroughTest.RemeasuringDataPoints_StateRemainsCorrect .....   Passed    0.54 sec
+        Start 779: PowerCalibrationWalkthroughTest.StateTransitions_ResetBehavior
+779/779 Test #779: PowerCalibrationWalkthroughTest.StateTransitions_ResetBehavior ................   Passed    0.60 sec
 
-100% tests passed, 0 tests failed out of 740
+100% tests passed, 0 tests failed out of 779
 
-Total Test time (real) =  76.35 sec
+Total Test time (real) =  91.50 sec
 ```
 

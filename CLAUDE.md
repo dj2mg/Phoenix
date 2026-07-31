@@ -15,7 +15,7 @@ This is the **Phoenix SDR (Software Defined Radio)** project - firmware for a Te
 
 ### Key Features
 - Dual VFO (Variable Frequency Oscillator) operation
-- SSB (Single Sideband) and CW (Morse Code) modes
+- SSB (Single Sideband), CW (Morse Code), and DIGITAL (USB audio, for FT8 etc.) modes
 - Real-time digital signal processing
 - State machine-controlled hardware management
 - CAT (Computer Aided Transceiver) control interface

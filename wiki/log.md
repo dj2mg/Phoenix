@@ -1069,3 +1069,36 @@ the audio pool was degrading both directions.
 
 **Method note:** before believing a close-in spur, count the FFT bins. Anything within ~5 bins
 of the carrier is skirt until proven otherwise. I asserted a spur at 3.5 bins twice.
+
+## [2026-07-31] lint | Pre-release consistency pass (wiki + README)
+
+Checked the wiki and the README release notes against the tree ahead of making the repository
+public. 49 pages, no orphans, no broken navigational wikilinks (the four unresolved ones are
+historical prose inside this log and the schema examples in [[CLAUDE]]).
+
+**Found stale and fixed.** [[digital-mode]] was written as a page but not integrated into the
+pages whose *code* it changed:
+
+- [[development-backlog]] still listed #13 as "under active debugging; not yet wired in" and
+  sequenced it behind [[openaudio-library]] (#14). #13 shipped first and without #14, so the
+  two-item "audio-plumbing track" no longer exists.
+- [[hardware-state-machine]] omitted the DIGITAL states from both switch tables — including the
+  `DIGITAL_STATES` composite case, which [[digital-mode]] itself calls the load-bearing gotcha.
+- [[persistent-config]] was missing `digitalDriveLevel` / `digitalRxLevel`.
+- [[overview]] had no `USBAudio.cpp` in the module map and described ModeSm as SSB/CW only.
+
+**Lesson for the next feature page.** Writing the feature's own page and updating the pages it
+*touches* are separate jobs, and the second is the one that gets skipped: the 2026-07-30/31
+commit updated 8 wiki pages, all of them ones that mention digital mode by name, and none of the
+four above, which describe code the same commit edited. Diffing the commit's source-file list
+against the pages that document those files finds this in a minute.
+
+**README.** The V1.4.0 release notes predated digital mode entirely — no feature entry, CAT
+table still at 29 commands (it is 32), test count at 740 (776), and the build instructions named
+Dual Serial without mentioning that digital mode needs Serial + MIDI + Audio and moves CAT to the
+first port. Also missing from the bug list: the `bands[].mode` sideband inversion, the optional
+`TX;` parameter, and the two digital-mode buffering fixes.
+
+Verified while checking: both firmware configurations compile clean (`usb=serial2` and
+`usb=serialmidiaudio`, 600 MHz, o1lto), and 779/779 unit tests pass — 776 committed plus 3
+uncommitted transmit-chain tests in the working tree.

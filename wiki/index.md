@@ -3,10 +3,11 @@ title: Phoenix Wiki Index
 type: index
 status: stub
 created: 2026-06-08
-updated: 2026-07-29
+updated: 2026-07-31
 ---
 
 <!-- updated 2026-07-29 (2nd pass): 48 content pages (firmware 26, theory 12, hardware 4, roadmap 6) + 1 source (7 schematics). Added firmware/tx-filter-hil-test for the new transmit HIL suite; recorded the finding that the 48-tap FIR transmit stages are only rate-independent to ~1.2 % (vs 0.3 % for the IIR receive stages) in runtime-filter-design + multirate-decimation + filter-hil-test, since it bounds any rate-invariance tolerance. Also: TX;/RX; parameterless-write trap and the missing equalizerXmt command in cat-control; Hilbert-not-regenerated rationale + bench suppression measurement in ssb-phasing-method; TransmitProcessing ordering notes in dsp-chain; TX EQ testability corollary in audio-equalizer. -->
+<!-- updated 2026-07-31 (2nd pass): pre-release consistency lint. No new pages. Integrated digital mode into the pages whose code it changed but which had not mentioned it — hardware-state-machine (DIGITAL_STATES in both switch tables), persistent-config (the two new ED fields), overview (USBAudio.cpp, ModeSm role) — and closed out development-backlog #13. See log. -->
 <!-- updated 2026-07-31: 48 content pages; digital-mode verified on hardware both directions (RX and TX); three bugs found and fixed on the bench (CAT sideband selection, play-queue prefill, unbounded record queue). Earlier, 2026-07-30: added firmware/digital-mode (USB audio mode); roadmap/usb-audio superseded by it. Earlier, 2026-07-29: 47 content pages; V1.4RC merge brought the rx-dsp-176k-stage-test work in. Added firmware/sample-rate-switching, firmware/runtime-filter-design, firmware/filter-hil-test. Corrected the now-false "SampleRate is never reassigned / rate-independence is dormant" claim in theory/multirate-decimation (+ documentation-todos). Earlier: added firmware/rapid-tune-mute-freeze; split board *electronics* into hardware/rf-board-electronics + hardware/filter-board-electronics; deci→centi-Hz; added firmware/audio-io. -->
 
 

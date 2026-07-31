@@ -3,7 +3,7 @@ title: Persistent Configuration (ED struct, Storage, ParamSave)
 type: module
 status: draft
 created: 2026-06-08
-updated: 2026-07-29
+updated: 2026-07-31
 tags: [config, ed-struct, littlefs, sdcard, json, persistence, globals, bands, sample-rate]
 source_refs: []
 related: ["[[overview]]", "[[main-loop]]", "[[tune-frequency-control]]", "[[hardware-state-machine]]", "[[iq-imbalance-correction]]", "[[dsp-chain]]", "[[sample-rate-switching]]"]
@@ -21,7 +21,7 @@ operating configuration and calibration**, with sensible inline defaults. Field 
 
 | Group | Fields (selected) |
 |---|---|
-| Audio / DSP | `agc`, `audioVolume`, `rfGainAllBands_dB`, `nrOptionSelect`, `ANR_notchOn`, `currentMicGain`, **`sampleRate`** |
+| Audio / DSP | `agc`, `audioVolume`, `rfGainAllBands_dB`, `nrOptionSelect`, `ANR_notchOn`, `currentMicGain`, **`sampleRate`**, `digitalDriveLevel`, `digitalRxLevel` |
 | Tuning | `activeVFO`, `currentBand[2]`, `centerFreq_Hz[2]`, `fineTuneFreq_Hz[2]`, `stepFineTune`, `freqIncrement`, `freqCorrectionFactor`, `lastFrequencies[band][3]` |
 | Modulation/CW | `modulation[2]`, `keyType`, `currentWPM`, `keyerFlip`, `CWToneIndex`, `CWFilterIndex`, `sidetoneVolume`, `decoderFlag` |
 | Spectrum/display | `spectrum_zoom`, `spectrumScale`, `spectrumNoiseFloor[band]`, `spectrumFloorAuto`, `dbm_calibration[band]` (S-meter) |

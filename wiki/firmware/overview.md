@@ -3,10 +3,10 @@ title: Firmware Architecture Overview
 type: overview
 status: draft
 created: 2026-06-08
-updated: 2026-07-29
+updated: 2026-07-31
 tags: [architecture, state-machines, dsp, teensy]
 source_refs: []
-related: ["[[main-loop]]", "[[mode-state-machine]]", "[[ui-state-machine]]", "[[tune-frequency-control]]", "[[hardware-state-machine]]", "[[rf-board]]", "[[filter-boards]]", "[[dsp-chain]]", "[[display-subsystem]]", "[[front-panel]]", "[[cat-control]]", "[[persistent-config]]", "[[code-heritage]]", "[[hardware-platform]]", "[[i2c-bus-map]]", "[[sample-rate-switching]]", "[[runtime-filter-design]]"]
+related: ["[[main-loop]]", "[[mode-state-machine]]", "[[digital-mode]]", "[[ui-state-machine]]", "[[tune-frequency-control]]", "[[hardware-state-machine]]", "[[rf-board]]", "[[filter-boards]]", "[[dsp-chain]]", "[[display-subsystem]]", "[[front-panel]]", "[[cat-control]]", "[[persistent-config]]", "[[code-heritage]]", "[[hardware-platform]]", "[[i2c-bus-map]]", "[[sample-rate-switching]]", "[[runtime-filter-design]]"]
 ---
 
 # Firmware Architecture Overview
@@ -61,7 +61,7 @@ Phoenix is unusually state-machine-heavy: **six StateSmith-generated** machines 
 
 | Machine | File | Generated? | Role |
 |---|---|---|---|
-| ModeSm | `ModeSm.cpp/h` | ✔ StateSmith | Operating mode: SSB/CW × RX/TX, iambic keyer, calibration entry |
+| ModeSm | `ModeSm.cpp/h` | ✔ StateSmith | Operating mode: SSB/CW/DIGITAL × RX/TX, iambic keyer, calibration entry |
 | UISm | `UISm.cpp/h` | ✔ StateSmith | Screen/menu navigation (SPLASH→HOME→menus) |
 | PowerCalSm | `PowerCalSm.cpp/h` | ✔ StateSmith | Power-amplifier calibration sub-routine |
 | ReceiveIQCalSm | `ReceiveIQCalSm.cpp/h` | ✔ StateSmith | RX I/Q balance calibration |
@@ -98,7 +98,8 @@ list and queue semantics.
 (encoders/buttons).
 
 **Signal processing** — [[dsp-chain]] (DSP.cpp routing/AGC, DSP_FFT spectrum, DSP_FIR
-filters, DSP_Noise NR, DSP_CWProcessing), plus MainBoard_AudioIO codec interface.
+filters, DSP_Noise NR, DSP_CWProcessing), plus MainBoard_AudioIO codec interface and
+`USBAudio.cpp`, the 4:1-paced USB audio transport used by [[digital-mode]].
 
 **User interface** — [[display-subsystem]] (RA8875 12-pane layout, home/menus/calibration
 screens), [[ui-state-machine]].

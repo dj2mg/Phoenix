@@ -3,7 +3,7 @@ title: Hardware & Calibration Coordinator (HardwareSm)
 type: module
 status: draft
 created: 2026-06-08
-updated: 2026-06-08
+updated: 2026-07-31
 tags: [hardware, coordinator, relays, tr-switching, calibration, vfo, statesmith]
 source_refs: []
 related: ["[[overview]]", "[[state-machine-architecture]]", "[[mode-state-machine]]", "[[tune-frequency-control]]", "[[rf-board]]", "[[filter-boards]]", "[[iq-imbalance-correction]]", "[[persistent-config]]"]
@@ -44,8 +44,8 @@ Maps mode → RF board state, then `HandleRFHardwareStateChange()` does the phys
 
 | RFHardwareState | ModeSm states that map to it |
 |---|---|
-| `RFReceive` | SSB_RECEIVE, CW_RECEIVE, CALIBRATE_FREQUENCY, CALIBRATE_OFFSET_SPACE, CALIBRATE_TX_IQ_SPACE |
-| `RFTransmit` | SSB_TRANSMIT, CALIBRATE_OFFSET_MARK |
+| `RFReceive` | SSB_RECEIVE, CW_RECEIVE, DIGITAL_RECEIVE, **DIGITAL_STATES**, CALIBRATE_FREQUENCY, CALIBRATE_OFFSET_SPACE, CALIBRATE_TX_IQ_SPACE |
+| `RFTransmit` | SSB_TRANSMIT, DIGITAL_TRANSMIT, CALIBRATE_OFFSET_MARK |
 | `RFCWMark` (key down) | CW_TRANSMIT_MARK/DIT_MARK/DAH_MARK, CALIBRATE_POWER_MARK |
 | `RFCWSpace` (key up) | CW_TRANSMIT_SPACE/KEYER_SPACE/KEYER_WAIT, CALIBRATE_POWER_SPACE |
 | `RFCalReceiveIQ` | CALIBRATE_RX_IQ |
@@ -69,6 +69,15 @@ order — PA (100 W vs bypass), `SelectLPFBand`, `SelectBPFBand`, `SelectAntenna
 in [[tune-frequency-control]]. The per-state frequency formulas and the SSB-TX 3rd-harmonic
 monitor trick are documented there. Calibration tune states place the VFOs specially (e.g.
 `TuneForReceiveIQCalibration` puts the test tone Fs/4 from the LO, `HardwareSm.cpp:605`).
+
+[[digital-mode]] adds no tune state of its own: `DIGITAL_RECEIVE` → `TuneReceive` and
+`DIGITAL_TRANSMIT` → `TuneSSBTX`, since digital transmit *is* an SSB transmission with the
+audio arriving over USB. What it does add is the **composite** `DIGITAL_STATES` in the receive
+group of both this function and `UpdateRFHardwareState()`. `EnterDigitalMode()`/
+`ExitDigitalMode()` are the composite's entry/exit actions and call `ChangeSampleRate()`, which
+ends in `UpdateTuneState()` while `state_id` is still the composite — the leaf has not been
+entered yet. Without those cases it falls to `default:` and reprograms the VFO from a stale tune
+state on every entry and exit (`HardwareSm.cpp:727-741`).
 
 ## 3. Calibration orchestration
 
