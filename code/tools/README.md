@@ -8,6 +8,8 @@ read it back through test instruments on the bench.
 |---|---|---|
 | [`filter_hil/`](filter_hil/README.md) | Receive filter rate-independence test suite | AD2 + radio |
 | [`tx_filter_hil/`](tx_filter_hil/README.md) | Transmit filter rate-independence test suite | AD2 + radio |
+| [`receive_chain_test.py`](#receive_chain_testpy) | Check the demodulated audio for a clean, uninterrupted tone | AD2 + radio + signal generator |
+| [`../test/transmit/transmit_test.py`](#transmit_testpy) | Check the exciter I/Q outputs across repeated PTT cycles | AD2 + radio |
 | [`flag_timing.py`](#flag_timingpy) | Measure firmware execution timing from `Flag()` pin transitions | AD2 + radio |
 | [`plot_flag_timing.py`](#plot_flag_timingpy) | Plot distributions from a `flag_timing.py` capture | none |
 | [`serial_diag.py`](#serial_diagpy) | Interactive CAT control + live diagnostic monitor | radio |
@@ -36,7 +38,7 @@ Per-tool dependencies, if you would rather install selectively:
 | Package | Needed by |
 |---|---|
 | `numpy` | everything except `serial_diag.py`'s CAT-only mode |
-| `matplotlib` | the plotting tools and both HIL suites |
+| `matplotlib` | the plotting tools, both HIL suites, `receive_chain_test.py`, `transmit_test.py` |
 | `scipy` | `extract_filter_prototypes.py` |
 | `pyserial` | anything that talks CAT: `serial_diag.py`, both HIL suites |
 | `sounddevice` | `usb_audio_test.py`, and the audio commands in `serial_diag.py` |
@@ -116,6 +118,53 @@ refused), `3` aborted.
 Read the suite's own README before running one — the wiring, the preflight
 conditions, and the failure table are all there. Background and results are in
 `wiki/firmware/filter-hil-test.md` and `wiki/firmware/tx-filter-hil-test.md`.
+
+---
+
+## `receive_chain_test.py`
+
+An end-to-end integrity check on the receive chain: an external signal
+generator supplies the RF, the AD2 samples the demodulated audio, and the tool
+asserts that the recovered tone is at the right frequency and amplitude and is
+free of interruptions and discontinuities. It writes a PNG for eyeballing and
+prints a pass/fail summary, optionally with a machine-parseable JSON line.
+
+```bash
+./venv/bin/python receive_chain_test.py                 # defaults: 1 kHz, 234 mV RMS
+./venv/bin/python receive_chain_test.py --json --quiet   # for scripting
+./venv/bin/python receive_chain_test.py --expected-tone 1500 --plot rx.png
+```
+
+Wiring: AD2 scope Ch1 on the SDR audio output; the signal generator drives the
+antenna input. Exit codes are 0 pass, 1 fail, 2 the AD2 could not be reached.
+The tolerances are all flags (`--freq-tol`, `--rms-tol`, `--min-snr`,
+`--max-env-cv`, …). Requires `numpy`, `matplotlib` and the WaveForms runtime.
+Driven by the `receive-test` Skill.
+
+---
+
+## `transmit_test.py`
+
+The transmit counterpart, and the one tool that does **not** live in this
+directory — it is `code/test/transmit/transmit_test.py`, and its captures land
+in whatever directory you run it from (`--output-dir`, default `.`), which is
+why everything under `code/test/transmit/` except the script itself is
+gitignored. It engages PTT through the AD2 repeatedly,
+captures the exciter I/Q outputs each time, and looks for the intermittent
+failures where a PTT cycle produces a dead channel, a discontinuity or a
+distorted waveform.
+
+```bash
+cd ../test/transmit
+python3 transmit_test.py -n 5      # quick smoke test
+python3 transmit_test.py -n 100    # full run
+```
+
+Wiring: AD2 DIO-0 controls PTT (low = transmit), W1 drives the microphone input
+with a 500 Hz 100 mV sine, and scope Ch1/Ch2 read I and Q. Each iteration
+reports RMS, SNR and dominant frequency; failures are saved to `failures/` as
+`.npz` plus a PNG. Exit code 0 if every iteration passed. Driven by the
+`transmit-test` Skill.
 
 ---
 
