@@ -3,10 +3,10 @@ title: DSP Chain (Audio, FFT, FIR, Noise, CW)
 type: module
 status: draft
 created: 2026-06-08
-updated: 2026-07-29
+updated: 2026-07-30
 tags: [dsp, fft, fir, agc, noise-reduction, cw, openaudio, sample-rate]
 source_refs: []
-related: ["[[overview]]", "[[real-time-constraints]]", "[[mode-state-machine]]", "[[display-subsystem]]", "[[code-heritage]]", "[[audio-io]]", "[[runtime-filter-design]]", "[[sample-rate-switching]]", "[[tx-filter-hil-test]]"]
+related: ["[[digital-mode]]", "[[overview]]", "[[real-time-constraints]]", "[[mode-state-machine]]", "[[display-subsystem]]", "[[code-heritage]]", "[[audio-io]]", "[[runtime-filter-design]]", "[[sample-rate-switching]]", "[[tx-filter-hil-test]]"]
 ---
 
 # DSP Chain (Audio, FFT, FIR, Noise, CW)

@@ -27,7 +27,18 @@ If not, see <https://www.gnu.org/licenses/>.
 
 #include "BuildInfo.h"
 
+// Teensyduino has no "Dual Serial + Audio" USB type, so a build with a USB audio
+// interface (usb=serialmidiaudio, which digital mode requires) has only one serial
+// port. CAT then shares the primary Serial, and Debug() must go quiet or its
+// output would corrupt the CAT stream. Without USB audio, nothing changes: CAT
+// keeps its own SerialUSB1 and Debug() keeps Serial to itself.
+#ifdef AUDIO_INTERFACE
+#define CATSerial Serial
+#define Debug(x)
+#else
+#define CATSerial SerialUSB1
 #define Debug(x) Serial.println(x)
+#endif
 
 #include <Adafruit_MCP23X17.h>         // Installed via Arduino library manager
 #include <OpenAudio_ArduinoLibrary.h>  // https://github.com/chipaudette/OpenAudio_ArduinoLibrary
@@ -301,6 +312,16 @@ extern struct config_t {
     int32_t equalizerRec[EQUALIZER_CELL_COUNT] = { 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100 }; /** Receive audio equalizer amplitudes */
     int32_t equalizerXmt[EQUALIZER_CELL_COUNT] = { 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100 }; /** Transmit audio equalizer amplitudes */
     int32_t currentMicGain = 20;   /** Gain of the mic used for SSB */
+    int32_t digitalDriveLevel = 50; /** Drive level (0-100) applied to USB transmit audio in digital mode */
+    /** Level (0-100) applied to USB receive audio in digital mode.
+     *
+     * The receive audio arriving at the USB tap is unregulated: with AGC off the
+     * AGC stage applies a fixed gain of 20, so the level is whatever the antenna
+     * and the DSP chain produce, and a strong signal reaches full scale and clips.
+     * The default of 25 is -12 dB, leaving headroom while staying far above the
+     * chain's noise floor (measured ~66 dB below a strong carrier).
+     */
+    int32_t digitalRxLevel = 25;
     float32_t dbm_calibration[NUMBER_OF_BANDS] = {0,0,0,0,0,0,0,0,0,0,0,0,0}; /** Calibrates the S-meter scale on the display */
     float32_t powerOutCW[NUMBER_OF_BANDS] = {DEFAULT_POWER_LEVEL,DEFAULT_POWER_LEVEL,DEFAULT_POWER_LEVEL,
                                             DEFAULT_POWER_LEVEL,DEFAULT_POWER_LEVEL,DEFAULT_POWER_LEVEL,
@@ -366,9 +387,22 @@ struct band {
     int64_t fBandLow_Hz;    /** Lower band edge */
     int64_t fBandHigh_Hz;   /** Upper band edge */
     const char *name;       /** Name of band */
-    ModulationType mode;    /** Modulation type (USB, LSB) */
-    int32_t FHiCut_Hz;      /** Audio bandpass filter edge */
-    int32_t FLoCut_Hz;      /** Audio bandpass filter edge */
+    /** The band's DEFAULT modulation - not the current one.
+     *
+     * The current modulation is ED.modulation[activeVFO]; that is what Demodulate()
+     * switches on and what the user selects. This field is the fixed reference the
+     * default is measured against, and the sign of FHiCut_Hz/FLoCut_Hz below is
+     * expressed in its convention (negative below the carrier for an LSB default).
+     * InitFilterMask() mirrors the stored cutoffs whenever the current modulation
+     * differs from this, which is how the other sideband is produced.
+     *
+     * Nothing may write this at run time. Doing so silently flips the sideband:
+     * making it agree with a newly selected modulation removes the mirroring and
+     * hands back the band-default passband instead of the requested one.
+     */
+    ModulationType mode;
+    int32_t FHiCut_Hz;      /** Audio bandpass filter edge, in the mode-default convention */
+    int32_t FLoCut_Hz;      /** Audio bandpass filter edge, in the mode-default convention */
     float32_t RFgain_dB;    /** Gain applied in the DSP receive chain */
     BandType band_type;     /** type of band */
     int32_t AGC_thresh;     /** AGC threshold value used by DSP receive code */
@@ -694,6 +728,7 @@ struct AGCConfig {
 #include "DSP_CWProcessing.h"
 #include "DSP.h"
 #include "MainBoard_AudioIO.h"
+#include "USBAudio.h"
 #include "FrontPanel.h"
 #include "FrontPanel_Rotary.h"
 #include "RFBoard.h"

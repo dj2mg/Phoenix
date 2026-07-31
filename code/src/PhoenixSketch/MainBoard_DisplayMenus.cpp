@@ -466,8 +466,27 @@ VariableParameter micg = {
     .limits = {.i32 = {.min = -10, .max=30, .step=1}}
 };
 
-struct SecondaryMenuOption MicOptions[1] = {
+// Drive level applied in software to the USB transmit audio in digital mode -
+// the digital-mode equivalent of microphone gain.
+VariableParameter digdrive = {
+    .variable = &ED.digitalDriveLevel,
+    .type = TYPE_I32,
+    .limits = {.i32 = {.min = 0, .max=100, .step=1}}
+};
+
+// Level applied to the USB receive audio sent to the host. With AGC off the
+// receive chain applies a fixed gain, so this is the only thing standing between
+// a strong signal and a clipped USB stream.
+VariableParameter digrx = {
+    .variable = &ED.digitalRxLevel,
+    .type = TYPE_I32,
+    .limits = {.i32 = {.min = 0, .max=100, .step=1}}
+};
+
+struct SecondaryMenuOption MicOptions[3] = {
     "Mic gain", variableOption, &micg, NULL, NULL,
+    "USB drive", variableOption, &digdrive, NULL, NULL,
+    "USB RX level", variableOption, &digrx, NULL, NULL,
 };
 
 // Calibration Menu

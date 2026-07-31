@@ -3,10 +3,10 @@ title: CAT Control (Kenwood emulation)
 type: module
 status: draft
 created: 2026-06-08
-updated: 2026-07-30
+updated: 2026-07-31
 tags: [cat, kenwood, ts-480, ts-2000, serial, rig-control, usb]
 source_refs: []
-related: ["[[overview]]", "[[main-loop]]", "[[mode-state-machine]]", "[[tune-frequency-control]]", "[[persistent-config]]", "[[sample-rate-switching]]", "[[filter-hil-test]]", "[[audio-equalizer]]", "[[cw-processing]]", "[[tx-filter-hil-test]]"]
+related: ["[[digital-mode]]", "[[overview]]", "[[main-loop]]", "[[mode-state-machine]]", "[[tune-frequency-control]]", "[[persistent-config]]", "[[sample-rate-switching]]", "[[filter-hil-test]]", "[[audio-equalizer]]", "[[cw-processing]]", "[[tx-filter-hil-test]]"]
 ---
 
 # CAT Control (Kenwood emulation)
@@ -30,7 +30,7 @@ two share most commands so it works either way, but the docs should be reconcile
 
 ## Architecture: a command-dispatch table
 
-The core is a static table of `valid_command` entries (`NUM_SUPPORTED_COMMANDS = 29`,
+The core is a static table of `valid_command` entries (`NUM_SUPPORTED_COMMANDS = 32`,
 `CAT.cpp:104-136`):
 ```c
 typedef struct {
@@ -50,7 +50,7 @@ bare command (e.g. `FA;`), a set carries a payload (`FA00014200000;`). Read hand
 > handler** — it becomes silently write-only. This is not hypothetical: it is exactly the bug
 > that made `FW;` unreadable for as long as `FW` has existed (see below).
 
-## Implemented commands (29)
+## Implemented commands (32)
 
 | Group | Commands |
 |---|---|
@@ -58,6 +58,7 @@ bare command (e.g. `FA;`), a set carries a payload (`FA00014200000;`). Read hand
 | Mode / status | `MD` (mode), `IF` (transceiver status string), `ID` (radio id) |
 | Band | `BU`/`BD` (band up/down) |
 | Gain / audio | `AG` (AF gain), `MG` (mic gain), `PC` (power control) |
+| Digital mode | `DG` (enter/leave), `DR` (receive level 000-100), `DS` (TX path counters, read-only) |
 | DSP | `NR` (noise reduction), `NT` (notch), `VX` (VOX) |
 | Keyer | `KS` (keyer speed / WPM) |
 | PTT | `TX` (transmit), `RX` (receive) |
@@ -86,6 +87,27 @@ receive cells. [[tx-filter-hil-test]] works around it rather than adding one, be
 `S_Xmt[i].pCoeffs` and `S_Rec[i].pCoeffs` point at the *same* coefficient array
 (`DSP_FFT.cpp:402-403`) — so soloing the transmit cells would re-verify tables `EQ` already
 exposes ([[audio-equalizer]]).
+
+### Digital-mode commands (added 2026-07-31)
+
+Three non-Kenwood additions for [[digital-mode]]:
+
+- **`DG`** — `DG1;` enters digital mode, `DG0;` leaves, `DG;` reads. Entering forces
+  176.4 ksps and starts the USB audio link; leaving restores the previous rate. Accepted only
+  from a receive state, and rejected outright in builds without a USB audio interface.
+- **`DR`** — `DR000;`–`DR100;` set the level applied to the receive audio sent to the host,
+  `DR;` reads it back zero-padded. Default 25 (−12 dB). Needed because nothing else regulates
+  that level: with AGC off the AGC stage applies a fixed gain of 20, so a strong signal
+  otherwise clips.
+- **`DS`** — read-only, returns `DS<calls>,<underruns>,<trimmed>,<depthMin>,<depthMax>;` for the
+  transmit path. Added to diagnose transmit spurs and immediately found the record queue pinned
+  at 208 of its 209-block ceiling. Counters reset on entering digital mode.
+
+**`MD` is deliberately inert on digital mode.** WSJT-X sends `MD2;` to force USB on startup and
+before every transmission, so treating a modulation change as a request to leave digital mode
+would make the mode impossible to hold. Only `DG0;` or the front panel leaves it.
+
+**`SR` is refused while in digital mode**, because that mode pins the sample rate.
 
 ### ⚠️ `TX` and `RX` are silent *writes* in both their forms
 
@@ -187,3 +209,39 @@ mode, RX/TX, etc.); `FA_read`/`MD_read`/`KS_read`/… each return one field.
 - Which `unsupported_cmd` stubs exist and how the radio replies to unknown commands (the `?`
   error response?).
 - Whether `AI` (auto-information) actually pushes unsolicited updates or is a no-op.
+
+
+## Sideband selection: `bands[].mode` is a band default, not the current mode
+
+Fixed 2026-07-31, after `MD2;` was observed tuning a 40 m receiver to LSB.
+
+The receive sideband is not stored anywhere directly. It is the **sign** of
+`bands[].FLoCut_Hz`/`FHiCut_Hz` - stored in the convention of the band's default
+modulation, negative below the carrier for an LSB-default band - **mirrored by
+`InitFilterMask()` (`DSP_FIR.cpp:1167`) iff `ED.modulation[activeVFO]` differs from
+`bands[].mode`**. That mirroring is the only mechanism that produces the opposite
+sideband.
+
+So the two fields are not two copies of the same thing:
+
+| field | meaning | written by |
+|---|---|---|
+| `ED.modulation[activeVFO]` | the **current** modulation - what `Demodulate()` switches on and the display shows | front-panel DEMODULATION button, `SetModulation()`. Persisted. |
+| `bands[].mode` | the band **default** - the fixed reference the mirroring is measured against | nothing at run time. Rebuilt from the table in `Globals.cpp` each boot; not persisted. |
+
+`SetModulation()` used to write both. Making the default agree with the newly
+requested modulation switches the mirroring *off*, so the band-default passband
+comes back: on 40 m, `MD2;` (select USB) tuned the radio to LSB, while the display
+- which reads `ED.modulation[]` - went on saying USB. `MD_read` and `IF_read` read
+the same field and so announced the band default rather than the mode in use,
+which is how the fault was initially misdiagnosed at the bench.
+
+`FL_read`/`FW_read`/`FW_write`/`FilterSetSSB` (`DSP_FFT.cpp:515`) and `VolumeScale`
+(`DSP.cpp:225`) legitimately keep using `bands[].mode`: they manipulate the
+*stored* cutoffs, which are in the band-default convention. Leave them.
+
+**Method note.** `CAT_test.cpp` had a test named `MD_write_SetsModulationNotJustBandMode`
+asserting that `bands[].mode` was written - it encoded the defect as the contract and
+passed for its whole life. It is now `MD_write_SetsModulationAndLeavesTheBandDefault`,
+and the new tests assert the **effective passband** rather than field values, which is
+the only formulation that could have caught this.

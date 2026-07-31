@@ -3,10 +3,10 @@ title: Audio I/O (MainBoard_AudioIO — OpenAudio quad-I2S graph)
 type: module
 status: draft
 created: 2026-06-15
-updated: 2026-07-29
+updated: 2026-07-30
 tags: [audio, i2s, openaudio, codec, queues, mixers, sidetone, mode-routing, sample-rate]
 source_refs: [sources/t41-ep-schematics]
-related: ["[[overview]]", "[[hardware-platform]]", "[[dsp-chain]]", "[[mode-state-machine]]", "[[main-loop]]", "[[cw-processing]]", "[[real-time-constraints]]", "[[iq-imbalance-correction]]", "[[sample-rate-switching]]"]
+related: ["[[digital-mode]]", "[[overview]]", "[[hardware-platform]]", "[[dsp-chain]]", "[[mode-state-machine]]", "[[main-loop]]", "[[cw-processing]]", "[[real-time-constraints]]", "[[iq-imbalance-correction]]", "[[sample-rate-switching]]"]
 ---
 
 # Audio I/O (MainBoard_AudioIO)

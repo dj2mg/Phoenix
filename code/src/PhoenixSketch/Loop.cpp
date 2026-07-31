@@ -448,7 +448,8 @@ void HandleButtonPress(int32_t button){
         (modeSM.state_id == ModeSm_StateId_CW_TRANSMIT_KEYER_WAIT) ||
         (modeSM.state_id == ModeSm_StateId_CW_TRANSMIT_MARK) ||
         (modeSM.state_id == ModeSm_StateId_CW_TRANSMIT_SPACE) ||
-        (modeSM.state_id == ModeSm_StateId_SSB_TRANSMIT) || 
+        (modeSM.state_id == ModeSm_StateId_SSB_TRANSMIT) ||
+        (modeSM.state_id == ModeSm_StateId_DIGITAL_TRANSMIT) ||
         (modeSM.state_id == ModeSm_StateId_CALIBRATE_POWER_MARK) ||
         (modeSM.state_id == ModeSm_StateId_CALIBRATE_OFFSET_MARK))
         return;
@@ -524,6 +525,9 @@ void HandleButtonPress(int32_t button){
                 }
                 // You are in UISm_StateId_[HOME,UPDATE] states
                 case TOGGLE_MODE:{
+                    // Cycle SSB -> CW -> DIGITAL -> SSB. The DIGITAL leg only
+                    // exists in builds with a USB audio interface; without one
+                    // the cycle is the original SSB <-> CW toggle.
                     switch(modeSM.state_id){
                         case ModeSm_StateId_SSB_RECEIVE:{
                             ModeSm_dispatch_event(&modeSM, ModeSm_EventId_TO_CW_MODE);
@@ -531,6 +535,15 @@ void HandleButtonPress(int32_t button){
                             break;
                         }
                         case ModeSm_StateId_CW_RECEIVE:{
+                            #ifdef AUDIO_INTERFACE
+                            ModeSm_dispatch_event(&modeSM, ModeSm_EventId_TO_DIGITAL_MODE);
+                            #else
+                            ModeSm_dispatch_event(&modeSM, ModeSm_EventId_TO_SSB_MODE);
+                            #endif
+                            UpdateRFHardwareState();
+                            break;
+                        }
+                        case ModeSm_StateId_DIGITAL_RECEIVE:{
                             ModeSm_dispatch_event(&modeSM, ModeSm_EventId_TO_SSB_MODE);
                             UpdateRFHardwareState();
                             break;

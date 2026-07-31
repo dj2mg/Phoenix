@@ -3,10 +3,10 @@ title: Runtime Sample-Rate Switching (192 / 176.4 ksps)
 type: decision
 status: draft
 created: 2026-07-29
-updated: 2026-07-29
+updated: 2026-07-30
 tags: [sample-rate, dsp, i2s, menu, cat, persistent-config, 176k, 192k]
 source_refs: []
-related: ["[[runtime-filter-design]]", "[[multirate-decimation]]", "[[audio-io]]", "[[persistent-config]]", "[[tune-frequency-control]]", "[[cat-control]]", "[[ui-state-machine]]", "[[display-subsystem]]", "[[zoom-fft]]", "[[theory-overview]]"]
+related: ["[[digital-mode]]", "[[runtime-filter-design]]", "[[multirate-decimation]]", "[[audio-io]]", "[[persistent-config]]", "[[tune-frequency-control]]", "[[cat-control]]", "[[ui-state-machine]]", "[[display-subsystem]]", "[[zoom-fft]]", "[[theory-overview]]"]
 ---
 
 # Runtime Sample-Rate Switching (192 / 176.4 ksps)

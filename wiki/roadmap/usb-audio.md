@@ -1,12 +1,12 @@
 ---
 title: "Dev: Bi-directional USB Audio (#13)"
 type: roadmap
-status: draft
+status: superseded
 created: 2026-06-09
-updated: 2026-07-29
-tags: [development, feature, usb, audio, digital-modes, openaudio, sample-rate]
+updated: 2026-07-30
+tags: [development, feature, usb, audio, digital-modes, openaudio, sample-rate, implemented]
 source_refs: []
-related: ["[[development-backlog]]", "[[dsp-chain]]", "[[openaudio-library]]", "[[cat-control]]", "[[sample-rate-switching]]"]
+related: ["[[digital-mode]]", "[[development-backlog]]", "[[dsp-chain]]", "[[openaudio-library]]", "[[cat-control]]", "[[sample-rate-switching]]"]
 ---
 
 # Dev: Bi-directional USB Audio (#13)
@@ -21,7 +21,51 @@ request: bi-directional USB audio"*
 
 Scoping note — not a solution design.
 
-## Current state — in active debugging, not yet a feature
+## Status: implemented as [[digital-mode]] (2026-07-30)
+
+**This scoping page is superseded.** The feature landed as a third operating mode alongside
+SSB and CW, and both directions have since been verified on the bench. See **[[digital-mode]]**
+for the design, the code map, the measurements and what remains open.
+
+Answers to the questions this page raised:
+
+- **USB device composition** — `usb=serialmidiaudio`. Teensyduino has no stock "Dual Serial +
+  Audio" type, so CAT moves from `SerialUSB1` to the primary `Serial` (via the new `CATSerial`
+  alias) and `Debug()` compiles out. The composite-descriptor difficulty this page anticipated
+  was real, and was sidestepped rather than solved.
+- **Sample rate / format** — the stock **44.1 kHz** endpoint, unmodified. No Teensy core file
+  is shadowed.
+- **Resampling** — *none*, and none has to be rebuilt on a rate change. Digital mode forces
+  176.4 ksps, where the rates line up exactly.
+
+### Correction to the "possible shortcut" below
+
+The instinct was right but the tap point was wrong. This page reasoned from the **Fs/8** RX
+*audio* rate (22.05 kHz at 176.4 ksps, an exact 1:2 to 44.1 kHz). The implementation instead
+taps one stage earlier, at **Fs/4** in `InterpolateReceiveData()` — and Fs/4 at 176.4 ksps
+**is 44,100 Hz exactly**. So there is no ratio at all, not even 1:2. One DSP block is exactly
+512 samples there, and 86.1328 blocks/s × 512 = 44,100 samples/s exactly.
+
+A second coincidence at the same rate does the rest: the AudioStream graph clock (Fs/128 =
+1378.125 Hz) is exactly 4× the USB audio block rate (344.53 Hz), which is what lets the stock
+`AudioInputUSB`/`AudioOutputUSB` objects be reused behind a simple 4:1 pacer.
+
+Whether 176.4 ksps was *originally* added for this reason remains unrecorded — but it is now
+load-bearing for digital mode either way.
+
+### Correction to an in-tree debug doc
+
+`code/docs/USB_Audio_TX_Diagnostic_Plan.md:152-158` claims a 0.27 %/s "structural deficit"
+between the DSP and USB sample budgets at 192 ksps. **That is an arithmetic error**: it uses
+94 blocks/s where the true rate is 192000/2048 = 93.75, and 93.75 × 512 = 48,000 exactly. The
+budget balanced all along, so that deficit explains none of the symptoms recorded on the
+abandoned `usb_audio` branch. Do not chase it.
+
+## Historical scoping notes (pre-implementation)
+
+Kept for context on how the problem was framed before it was solved.
+
+### Current state (as of 2026-06-09) — in active debugging, not yet a feature
 
 - The audio codec interface is `MainBoard_AudioIO` ([[dsp-chain]]); a grep finds **no USB-audio
   endpoints** (`AudioInputUSB`/`AudioOutputUSB`) wired in there yet.

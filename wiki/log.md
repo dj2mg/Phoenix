@@ -934,3 +934,138 @@ through `command_parser()`; they were confirmed failing before the fix. 745/745 
 
 Updated [[cat-control]]. **Open:** the rest of the command table has never been audited against
 the spec, and `TX`/`RX` were wrong, so others may be. Noted on the page.
+
+## [2026-07-30] feature | DIGITAL (USB audio) mode
+
+Added a third operating mode alongside SSB and CW, for digital modes over USB audio. Closes the
+scoping on [[usb-audio]] (#13); design and code map written up in [[digital-mode]].
+
+**The load-bearing insight.** Teensy USB audio is a fixed 44.1 kHz endpoint, and at 176.4 ksps
+three things line up exactly: the receive chain's Fs/4 tap *is* 44,100 Hz; one DSP block there
+*is* 512 samples (86.1328 blocks/s × 512 = 44,100/s); and the AudioStream graph clock (Fs/128 =
+1378.125 Hz) is exactly 4× the USB audio block rate. So the mode forces 176.4 ksps and needs no
+resampler and no modified Teensy core file. The rate switch lives on the enter/exit actions of a
+`DIGITAL_STATES` composite, which is what makes it restore on every exit path including
+calibration.
+
+**Reused rather than rebuilt.** The stock `AudioInputUSB`/`AudioOutputUSB` (what OpenAudio's
+`USB_Audio_F32.h` wraps) are kept, with all the core descriptor/DMA/ISR/feedback code. They
+cannot go in the AudioConnection graph — it is clocked by I2S, 4× too fast — so they are taken
+off `update_all()` via the protected `AudioStream::active` flag and driven by a 4:1 pacer.
+~120 lines of adapter instead of a reimplemented transport.
+
+**Two corrections recorded.**
+1. `code/docs/USB_Audio_TX_Diagnostic_Plan.md:152-158` claims a 0.27 %/s structural sample
+   deficit at 192 ksps. It is an arithmetic error — 94 blocks/s used where the true rate is
+   93.75, and 93.75 × 512 = 48,000 exactly. Noted on [[usb-audio]] so it is not chased again.
+2. [[usb-audio]]'s "possible shortcut" reasoned from the Fs/8 audio rate (22.05 kHz, 1:2 to
+   44.1). Right instinct, wrong tap point: Fs/4 needs no ratio at all.
+
+**Bug the new tests caught.** Because `EnterDigitalMode()`/`ExitDigitalMode()` are the
+*composite's* actions, they run while `state_id` is still `DIGITAL_STATES` — before the leaf is
+entered. `ChangeSampleRate()` ends in `UpdateTuneState()`, which fell through to `default:` and
+reprogrammed the VFO from a stale tune state on every entry and exit. Fixed by handling the
+composite in `UpdateTuneState()` and `UpdateRFHardwareState()`; pinned by
+`ModeSm.DigitalModeTransitionsHandleTheCompositeState`, which asserts against the mock Serial's
+captured lines.
+
+**Build change with a user-visible consequence:** `usb=serialmidiaudio` has only one CDC port,
+so CAT moves to the primary `Serial` (new `CATSerial` alias in `SDT.h`) and `Debug()` compiles
+out. CAT clients must be repointed. `MD` is deliberately inert on the mode — WSJT-X sends `MD2;`
+constantly and would otherwise knock the radio out of digital mode.
+
+765/765 unit tests pass (745 before, 20 new); both `usb=serialmidiaudio` and `usb=serial2`
+firmware builds compile. **Nothing is verified on hardware yet** — see the open items on
+[[digital-mode]].
+
+## [2026-07-31] bench | Digital mode verified on hardware; two USB-audio faults and a CAT sideband bug fixed
+
+First hardware run of [[digital-mode]]. Enumerates as `Teensy MIDI/Audio` at 44100 Hz both
+directions with the async feedback endpoint live. Injected 7075 kHz carrier, dial 7074 kHz.
+
+**Headline result: no pitch error.** Tone measured 999.57 Hz; the −0.43 Hz offset is 0.06 ppm
+of the carrier, i.e. generator-vs-radio calibration. First and last 5 s of a 20 s capture
+differ by 0.009 Hz, below the measurement floor. The 4:1 pacer holds exact rate — a divisor
+error would have shown as a 4× or 25 % ratio.
+
+**Fault 1 — play-queue underrun.** 147 dropouts / 903 ms in 12 s (7.55 %). Every zero run was
+an exact multiple of AUDIO_BLOCK_SAMPLES, spaced ~133 ms: `AudioOutputUSB::update()`
+substitutes a *silence block* when its input queue is empty, so an empty queue reads as clean
+digital silence rather than a glitch. The queue was capped at 8 blocks and never prefilled, so
+it lived at depth 0–4 while the DSP inherently swings it by 4 blocks every 11.6 ms — no
+underrun margin at all. Display refreshes are the likely trigger. Now 24 blocks prefilled to
+half: **0 dropouts in 20 s**.
+
+**Fault 2 — no headroom.** Stream sat at 98 % FS. This is *not* AGC: `ED.agc` was already
+`AGCOff`, and that path applies `fixed_gain = 20.0`, a compile-time constant, so the USB level
+is RF input × chain gain × 20 with nothing regulating it. Added `ED.digitalRxLevel` (default
+25 = −12 dB, Microphone menu + CAT `DR`), scaled into scratch because the caller still needs
+that buffer for the speaker. Peak −0.2 → −12.3 dBFS and 2nd harmonic −58.8 → −64.5 dB, so it
+*was* mildly clipping.
+
+**Pre-existing bug found and fixed: CAT sideband selection.** `MD2;` on 40 m tuned the radio to
+LSB. `SetModulation()` wrote `bands[].mode`, which is the band *default* and the reference the
+passband mirroring is measured against; making it agree with the request switches the mirroring
+off. `MD_read`/`IF_read` read the same field and misreported the mode in use. Details and the
+corrected model on [[cat-control]]. Shared SSB/CW code, unrelated to digital mode.
+
+**Method notes.** (1) A test asserting `bands[].mode` after a mode change was asserting the
+bug, and passed for its whole life; the replacement asserts the effective passband. (2) I
+diagnosed the sideband from a single `MD;` read and then *wrote* `MD2;` to "fix" it, which
+broke a working bench setup mid-test — the read was itself the buggy one. Capturing 2 s of
+audio would have answered the question directly and without side effects.
+
+776/776 unit tests pass. Transmit, end-to-end FT8, and long-run clock drift remain unverified —
+see the open list on [[digital-mode]].
+
+## [2026-07-31] bench | Transmit verified; record queue was starving the audio pool
+
+Transmit works: sideband sense flips correctly (USB -89.99 deg / +41.0 dB image, LSB
++90.12 deg / -41.2 dB), imbalance -0.16 dB, IMD3 -51 dB, stable over a 12 s key-down.
+
+**Amplitude response** answered the "why do two tones differ" question: a real SSB passband,
+peak 800 Hz, -3 dB at 2243 Hz, 2.8 dB spread over 200-2200 Hz. It is the cascade of the TX
+decimate-by-2 and TX audio bandwidth filters, both by design. Not the Hilbert transform -
+computed from its coefficient tables it is flat to 0.01 dB above 200 Hz.
+
+**The real find:** a 344.53 Hz (= 44100/128) envelope modulation, proven radio-side by varying
+the host ALSA period size and watching it not move. New `DS` CAT counters showed underruns and
+trims were zero but `depthMax = 208` - the transmit record queue is begun for all of digital
+mode yet only drained while transmitting, so it sat at AudioRecordQueue's 209-block ceiling and
+held ~418 of the 500 audio blocks. Bounding it in the pacer took +/-344 Hz sidebands from
+-27 dBc to -74.5 dBc, the broadband floor from -65 to -84.6 dBc, and envelope ripple from
+0.53 dB to 0.06 dB.
+
+**Method notes.** Two of my own measurements were wrong before they were right. (1) The first
+frequency sweep evaluated the DTFT at the *assumed* tone frequency; as the frequency estimate
+drifted it walked out of the Hann mainlobe and read as deep notches, inventing a 17 dB ragged
+response. Re-analysing identical raw data both ways reproduced the artifact exactly. Save raw
+traces. (2) From the same artifact I claimed a 0.6 % transmit pitch shift; zero-crossing
+analysis gives 2000.27 Hz for 2000 Hz in, and the I2S clock computes to exactly 176400.0000 Hz,
+so there is none. (3) An early "29 ms" dip period was 2.9 ms aliased by a 1 ms-per-character
+ASCII plot.
+
+776/776 unit tests pass. Open: residual +/-86 Hz sidebands at -27 dBc, end-to-end FT8, transmit
+long-run drift, and the single-VFO radio.
+
+## [2026-07-31] bench | The +/-86 Hz sidebands were a resolution artifact; queue fix also improved receive
+
+Chased the residual +/-86 Hz transmit sidebands reported in the previous entry. They do not
+exist. Those captures were 40.96 ms -> 24.4 Hz bins, putting +/-86 Hz only 3.5 bins from the
+carrier, i.e. inside its skirt. At 170 ms (5.88 Hz bins, 14.6 bins out) the same measurement
+reads -93 dBc rather than -27.
+
+Plotting the raw envelope showed what was really there before the record-queue fix: discrete
+ringing transients at irregular intervals, flat between them - not a modulation. Impulsive
+events smear the carrier into a broadband pedestal (+/-600 Hz at -40 to -60 dBc), and probing
+that pedestal at +/-86 Hz just sampled it somewhere. The 344.53 Hz result from the previous
+entry stands - that was 683 ms / 1.5 Hz bins and independently confirmed by varying the ALSA
+period size.
+
+Also re-ran the receive comparison once the signal generator was back on. The record-queue fix,
+made for transmit, improved receive by **17.5 dB in 2nd harmonic (-64.5 -> -82.0 dB) and 16 dB
+in noise floor (-119.3 -> -135.4 dB)**, with 0 dropouts in 60 s and L/R bit-identical. Starving
+the audio pool was degrading both directions.
+
+**Method note:** before believing a close-in spur, count the FFT bins. Anything within ~5 bins
+of the carrier is skirt until proven otherwise. I asserted a spur at 3.5 bins twice.

@@ -343,6 +343,10 @@ void DrawFreqBandModPane(void) {
         case ModeSm_StateId_SSB_TRANSMIT:
             tft.print("SSB ");
             break;
+        case ModeSm_StateId_DIGITAL_RECEIVE:
+        case ModeSm_StateId_DIGITAL_TRANSMIT:
+            tft.print("DATA");
+            break;
         default:
             tft.print("CW ");
             break;
@@ -670,7 +674,7 @@ FASTRUN int16_t pixelnew(uint32_t i){
 FASTRUN void ShowSpectrum(void){
     // Sweep-start: prime L2 with a fresh spectrum surface + current filter bar.
     if (x1 == 0) { spectrumChunkIdx = 0; spectrumFrameCtr++; } // new sweep: reset chunk idx, advance frame counter
-    if (x1 == 0 && modeSM.state_id != ModeSm_StateId_SSB_TRANSMIT) {
+    if (x1 == 0 && !IsSSBTransmit()) {
         tft.writeTo(L2);
         DrawBandWidthIndicatorBar();   // its opening fillRect clears the spectrum body (y >= top+20)
         // Restamp the yellow frame: DrawBandWidthIndicatorBar's clear overlaps
@@ -709,7 +713,7 @@ FASTRUN void ShowSpectrum(void){
     // ~13 ms/frame, so it is throttled to every AUDIO_SPECTRUM_DECIMATE-th frame to free real-time
     // budget for the main spectrum/waterfall. The waterfall colour computation is NOT throttled.
     tft.writeTo(L1);
-    if (modeSM.state_id != ModeSm_StateId_SSB_TRANSMIT){
+    if (!IsSSBTransmit()){
         bool drawAudioSpectrum = (spectrumFrameCtr % AUDIO_SPECTRUM_DECIMATE) == 0;
         for (int16_t xb = x1_start + 1; xb <= x1; xb++){
             if (drawAudioSpectrum && xb < 128) {
@@ -745,7 +749,7 @@ FASTRUN void ShowSpectrum(void){
         psdupdated = false;
         redrawSpectrum = false;
 
-        if (modeSM.state_id == ModeSm_StateId_SSB_TRANSMIT)
+        if (IsSSBTransmit())
             return; // don't do the rest of these steps in transmit mode
 
         // if we're shifting the spectrum automatically, update the adjustment
@@ -820,7 +824,7 @@ FASTRUN static void BuildFrozenBackdrop(void){
  * and stamps the bar at the current frequency on top. The waterfall is left frozen.
  */
 FASTRUN void RedrawFrozenSpectrumWithBar(void){
-    if (modeSM.state_id == ModeSm_StateId_SSB_TRANSMIT) return;
+    if (IsSSBTransmit()) return;
 
     if (!fineFreezeBackdropReady){
         BuildFrozenBackdrop();
@@ -980,7 +984,7 @@ void DrawVUBar(int16_t x0, int16_t y0, float32_t RMSval){
  * VU meters of transmit amplitude in SSB transmit mode.
  */
 void DrawStateOfHealthPane(void) {
-    if ((modeSM.state_id == ModeSm_StateId_SSB_TRANSMIT) && PaneStateOfHealth.stale){
+    if (IsSSBTransmit() && PaneStateOfHealth.stale){
 
         // Draw some color bars to warn when the audio power is getting too large for
         // the transmit IQ chain. The RF board starts to clip when RMS values exceed 0.6.
@@ -1168,10 +1172,12 @@ void DrawTXRXStatusPane(void) {
     if (oldMState != modeSM.state_id){
         switch (modeSM.state_id){
             case ModeSm_StateId_CW_RECEIVE:
+            case ModeSm_StateId_DIGITAL_RECEIVE:
             case ModeSm_StateId_SSB_RECEIVE:
                 PaneTXRXStatus.stale = true;
                 state = RX;
                 break;
+            case ModeSm_StateId_DIGITAL_TRANSMIT:
             case ModeSm_StateId_SSB_TRANSMIT:
             case ModeSm_StateId_CW_TRANSMIT_KEYER_WAIT:
             case ModeSm_StateId_CW_TRANSMIT_DAH_MARK:
@@ -1542,7 +1548,9 @@ void UpdateRFGainSetting(void){
         case ModeSm_StateId_CW_RECEIVE:
             comp = ED.XAttenCW[ED.currentBand[ED.activeVFO]];
             break;
+        case ModeSm_StateId_DIGITAL_RECEIVE:
         case ModeSm_StateId_SSB_RECEIVE:
+            // Digital transmit uses the SSB transmit path, so no CW attenuation
             comp = 0.0;
             break;
         default:
@@ -1828,7 +1836,7 @@ void DrawHome(){
         timerDisplay_ms = millis();
         if (redrawSpectrum == false)
             redrawSpectrum = true;
-        if (modeSM.state_id == ModeSm_StateId_SSB_TRANSMIT)
+        if (IsSSBTransmit())
             PaneStateOfHealth.stale = true;
     }
     for (size_t i = 0; i < NUMBER_OF_PANES; i++){

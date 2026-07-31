@@ -3,10 +3,10 @@ title: Mode State Machine (ModeSm)
 type: module
 status: draft
 created: 2026-06-08
-updated: 2026-07-29
+updated: 2026-07-30
 tags: [state-machine, ssb, cw, transmit, keyer, iambic, calibration, statesmith]
 source_refs: []
-related: ["[[overview]]", "[[state-machine-architecture]]", "[[tune-frequency-control]]", "[[main-loop]]", "[[hardware-state-machine]]", "[[ssb-phasing-method]]", "[[rf-board]]", "[[audio-io]]", "[[cat-control]]"]
+related: ["[[digital-mode]]", "[[overview]]", "[[state-machine-architecture]]", "[[tune-frequency-control]]", "[[main-loop]]", "[[hardware-state-machine]]", "[[ssb-phasing-method]]", "[[rf-board]]", "[[audio-io]]", "[[cat-control]]"]
 ---
 
 # Mode State Machine (ModeSm)

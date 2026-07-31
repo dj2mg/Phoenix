@@ -544,11 +544,15 @@ void UpdateRFHardwareState(void){
         case (ModeSm_StateId_CALIBRATE_FREQUENCY):
         case (ModeSm_StateId_CALIBRATE_TX_IQ_SPACE):
         case (ModeSm_StateId_CW_RECEIVE):
+        // See UpdateTuneState() for why the composite state appears here too
+        case (ModeSm_StateId_DIGITAL_STATES):
+        case (ModeSm_StateId_DIGITAL_RECEIVE):
         case (ModeSm_StateId_SSB_RECEIVE):{
             rfHardwareState = RFReceive;
             break;
         }
         case (ModeSm_StateId_CALIBRATE_OFFSET_MARK):
+        case (ModeSm_StateId_DIGITAL_TRANSMIT):
         case (ModeSm_StateId_SSB_TRANSMIT):{
             rfHardwareState = RFTransmit;
             break;
@@ -720,12 +724,22 @@ void UpdateTuneState(void){
         case (ModeSm_StateId_CALIBRATE_TX_IQ_SPACE):
         case (ModeSm_StateId_CALIBRATE_FREQUENCY):
         case (ModeSm_StateId_CW_RECEIVE):
+        // The DIGITAL_STATES composite appears here, not just its children:
+        // EnterDigitalMode() / ExitDigitalMode() are the composite's entry and
+        // exit actions and call ChangeSampleRate(), which ends in UpdateTuneState().
+        // At that moment the leaf state has not been entered yet, so state_id is
+        // the composite. It is always on its way to or from a receive state.
+        case (ModeSm_StateId_DIGITAL_STATES):
+        case (ModeSm_StateId_DIGITAL_RECEIVE):
         case (ModeSm_StateId_SSB_RECEIVE):{
             tuneState = TuneReceive;
             break;
         }
         case (ModeSm_StateId_CALIBRATE_OFFSET_MARK):
+        case (ModeSm_StateId_DIGITAL_TRANSMIT):
         case (ModeSm_StateId_SSB_TRANSMIT):{
+            // Digital transmit is an SSB transmission with the audio arriving
+            // over USB instead of from the microphone, so the VFO setup is the same
             tuneState = TuneSSBTX;
             break;
         }

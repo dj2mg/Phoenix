@@ -507,8 +507,12 @@ time_t getTeensy3Time() {
 
 void setup(void){
     Serial.begin(115200);
+#ifndef AUDIO_INTERFACE
+    // With a USB audio interface there is only one CDC port and CATSerial is
+    // Serial, already opened above. See the CATSerial definition in SDT.h.
     SerialUSB1.begin(38400); // For CAT control
     Serial.println("T41 SDT Setup");
+#endif
 
     // get TIME from real time clock with 3V backup battery
     setSyncProvider(getTeensy3Time);

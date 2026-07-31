@@ -302,6 +302,7 @@ void UpdateAudioIOState(void){
         case (ModeSm_StateId_CALIBRATE_FREQUENCY):
         case (ModeSm_StateId_CALIBRATE_RX_IQ):
         case (ModeSm_StateId_CW_RECEIVE):
+        case (ModeSm_StateId_DIGITAL_RECEIVE):
         case (ModeSm_StateId_SSB_RECEIVE):{
             // Microphone input stops
             Q_in_L_Ex.end();
@@ -342,6 +343,33 @@ void UpdateAudioIOState(void){
             // Input is IQ samples from the receive board
             SelectMixerChannel(&modeSelectInL, 0);
             SelectMixerChannel(&modeSelectInR, 0);
+            // Mute speaker audio
+            MuteMixerChannels(&modeSelectOutL);
+            MuteMixerChannels(&modeSelectOutR);
+            break;
+        }
+        case (ModeSm_StateId_DIGITAL_TRANSMIT):{
+            // As SSB_TRANSMIT, except the transmit audio arrives over USB rather
+            // than from the microphone.
+            // IQ from receive continues
+            Q_in_L.begin();
+            Q_in_R.begin();
+            // The microphone queues are kept running even though the audio is
+            // discarded: they are what paces TransmitProcessing() to the I2S
+            // block rate. Without that the host's USB clock would drive the DSP
+            // loop, and the transmit output queue would starve.
+            Q_in_L_Ex.begin();
+            Q_in_R_Ex.begin();
+
+            // Output is samples to RF transmit
+            SelectMixerChannel(&modeSelectOutExL,0);
+            SelectMixerChannel(&modeSelectOutExR,0);
+            // Input is IQ samples from the receive board
+            SelectMixerChannel(&modeSelectInL, 0);
+            SelectMixerChannel(&modeSelectInR, 0);
+            // The microphone is not the audio source here, so keep it muted
+            MuteMixerChannels(&modeSelectInExL);
+            MuteMixerChannels(&modeSelectInExR);
             // Mute speaker audio
             MuteMixerChannels(&modeSelectOutL);
             MuteMixerChannels(&modeSelectOutR);
@@ -490,6 +518,11 @@ void InitializeAudio(void){
     // The transmit IQ cal oscillator. Only used during the TXIQ calibration state
     transmitIQcal_oscillator.amplitude(40.0/500);
 
+    // Take the USB audio objects off the audio library's graph clock. They are
+    // paced separately (see USBAudio.cpp); leaving them in update_all() would run
+    // them at four times their correct rate from boot onwards.
+    USBAudioInit();
+
     // Set the oscillator frequencies for the current sample rate
     UpdateSampleRateDependentOscillators();
 }
@@ -531,6 +564,14 @@ void ChangeSampleRate(uint8_t newRate){
     for (int v = 0; v < 2; v++)
         ED.centerFreq_Hz[v] += dQuarter_Hz;
 
+    // The USB audio transport is paced against the I2S block rate, so it has to
+    // be stopped across the reconfiguration and restarted afterwards. Normally
+    // this is a no-op: DIGITAL mode pins the rate at 176.4 ksps and both the menu
+    // and the CAT SR command refuse to change it while that mode is active.
+    bool usbAudioWasRunning = USBAudioIsRunning();
+    if (usbAudioWasRunning)
+        USBAudioEnd();
+
     AudioNoInterrupts();
     SampleRate = newRate;
     // Reconfigure the I2S peripheral clock to the new rate
@@ -547,6 +588,9 @@ void ChangeSampleRate(uint8_t newRate){
     Q_in_L_Ex.clear();
     Q_in_R_Ex.clear();
     AudioInterrupts();
+
+    if (usbAudioWasRunning)
+        USBAudioBegin();
 
     // Re-program the RX VFO (Si5351) for the compensated center frequency so the
     // radio stays tuned to the same dial frequency. Done outside the audio-

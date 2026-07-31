@@ -7,7 +7,7 @@ updated: 2026-07-29
 ---
 
 <!-- updated 2026-07-29 (2nd pass): 48 content pages (firmware 26, theory 12, hardware 4, roadmap 6) + 1 source (7 schematics). Added firmware/tx-filter-hil-test for the new transmit HIL suite; recorded the finding that the 48-tap FIR transmit stages are only rate-independent to ~1.2 % (vs 0.3 % for the IIR receive stages) in runtime-filter-design + multirate-decimation + filter-hil-test, since it bounds any rate-invariance tolerance. Also: TX;/RX; parameterless-write trap and the missing equalizerXmt command in cat-control; Hilbert-not-regenerated rationale + bench suppression measurement in ssb-phasing-method; TransmitProcessing ordering notes in dsp-chain; TX EQ testability corollary in audio-equalizer. -->
-<!-- updated 2026-07-29: 47 content pages; V1.4RC merge brought the rx-dsp-176k-stage-test work in. Added firmware/sample-rate-switching, firmware/runtime-filter-design, firmware/filter-hil-test. Corrected the now-false "SampleRate is never reassigned / rate-independence is dormant" claim in theory/multirate-decimation (+ documentation-todos). Earlier: added firmware/rapid-tune-mute-freeze; split board *electronics* into hardware/rf-board-electronics + hardware/filter-board-electronics; deci→centi-Hz; added firmware/audio-io. -->
+<!-- updated 2026-07-31: 48 content pages; digital-mode verified on hardware both directions (RX and TX); three bugs found and fixed on the bench (CAT sideband selection, play-queue prefill, unbounded record queue). Earlier, 2026-07-30: added firmware/digital-mode (USB audio mode); roadmap/usb-audio superseded by it. Earlier, 2026-07-29: 47 content pages; V1.4RC merge brought the rx-dsp-176k-stage-test work in. Added firmware/sample-rate-switching, firmware/runtime-filter-design, firmware/filter-hil-test. Corrected the now-false "SampleRate is never reassigned / rate-independence is dormant" claim in theory/multirate-decimation (+ documentation-todos). Earlier: added firmware/rapid-tune-mute-freeze; split board *electronics* into hardware/rf-board-electronics + hardware/filter-board-electronics; deci→centi-Hz; added firmware/audio-io. -->
 
 
 # Phoenix Wiki — Index
@@ -36,6 +36,7 @@ _Modules, architecture, state machines, DSP chains, design decisions, code herit
 
 **State machines**
 - [[mode-state-machine]] — ModeSm: SSB/CW × RX/TX, iambic keyer, calibration entry (generated). *(draft)*
+- [[digital-mode]] — DIGITAL (USB audio) mode for FT8/WSJT-X: DIGITAL_STATES composite, forced 176.4 ksps, 4:1 USB pacer. RX and TX verified on the bench. *(draft)*
 - [[ui-state-machine]] — UISm: splash→home→menu stack + tool screens (DFE/EQ/BIT/cal) (generated). *(draft)*
 - [[tune-frequency-control]] — Tune.cpp: frequency math (Fs/4 shift, fine tune, CW offset) + PA power-cal math. Not a state machine. *(draft)*
 - [[hardware-state-machine]] — HardwareSm (hand-written) maps mode→RF/tune hardware; drives 4 cal sub-machines. *(draft)*
@@ -96,7 +97,7 @@ _Plans for future development, proposals, open questions._
 - [[development-backlog]] — software-dev tasks mirroring the open GitHub issues (index).
   - [[transmit-spectrum]] (#10) — see the TX spectrum; largely built, needs verify.
   - [[manual-notch]] (#11) — 3-way notch (off/auto/manual); manual mode is new work.
-  - [[usb-audio]] (#13) — bi-directional USB audio; in active debugging.
+  - [[usb-audio]] (#13) — bi-directional USB audio; **implemented and bench-verified** as [[digital-mode]]. *(superseded)*
   - [[openaudio-library]] (#14) — change OpenAudio for audio quality; foundational.
 
 ## Sources
