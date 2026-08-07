@@ -1,3 +1,20 @@
+/* 
+Copyright (C) 2026 T41 EP Software Contributors
+See Contributors.txt for list of known authors.
+
+This file is part of Phoenix.
+
+Phoenix is free software: you can redistribute it and/or modify it under the 
+terms of the GNU General Public License as published by the Free Software 
+Foundation, either version 3 of the License, or (at your option) any later version.
+
+Phoenix is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR 
+PURPOSE. See the GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License along with Phoenix. 
+If not, see <https://www.gnu.org/licenses/>.
+*/
 /**
  * @file MainBoard_DisplayMenus.cpp
  * @brief Menu system for Phoenix SDR radio configuration
@@ -344,7 +361,7 @@ VariableParameter cwf = {
 VariableParameter stv = {
     .variable = &ED.sidetoneVolume,
     .type = TYPE_F32,
-    .limits = {.f32 = {.min = 0.0F, .max=100.0F, .step=0.5F}}
+    .limits = {.f32 = {.min = 0.0F, .max=500.0F, .step=1.0F}}
 };
 
 struct SecondaryMenuOption CWOptions[6] = {
@@ -353,7 +370,7 @@ struct SecondaryMenuOption CWOptions[6] = {
     "Keyer", functionOption, NULL, (void *)SelectKeyer, NULL,
     "Flip paddle", functionOption, NULL, (void *)FlipPaddle, NULL,
     "CW Filter", variableOption, &cwf, NULL, NULL,
-    "Sidetone volume", variableOption, &stv, NULL, NULL,
+    "Sidetone volume", variableOption, &stv, NULL, (void *)UpdateSidetoneOscillator,
 };
 
 /**

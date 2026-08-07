@@ -1,3 +1,20 @@
+/* 
+Copyright (C) 2026 T41 EP Software Contributors
+See Contributors.txt for list of known authors.
+
+This file is part of Phoenix.
+
+Phoenix is free software: you can redistribute it and/or modify it under the 
+terms of the GNU General Public License as published by the Free Software 
+Foundation, either version 3 of the License, or (at your option) any later version.
+
+Phoenix is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR 
+PURPOSE. See the GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License along with Phoenix. 
+If not, see <https://www.gnu.org/licenses/>.
+*/
 #ifndef SDT_H
 #define SDT_H
 
@@ -6,7 +23,7 @@
 #include "Config.h"
 
 #define RIGNAME "T41-EP SDT"
-#define VERSION "Phx V1.2.1" 
+#define VERSION "Phx V1.3.2"
 
 #include "BuildInfo.h"
 
@@ -155,10 +172,10 @@ extern uint64_t hardwareRegister;
 float32_t PSDToDBM(float32_t psdval);
 float32_t AudioToDBM(float32_t audioVal);
 
-#define BUFFER_SIZE                             128
+#define USB_BUFFER_SIZE                             128
 #define N_BLOCKS                                16 // receive: IQ input
 #define N_BLOCKS_EX                             16 // transmit: mic input
-#define READ_BUFFER_SIZE                        (BUFFER_SIZE * N_BLOCKS)
+#define READ_BUFFER_SIZE                        (USB_BUFFER_SIZE * N_BLOCKS)
 
 #ifndef PI
 #define PI 3.1415926535897932384626433832795f
@@ -715,7 +732,7 @@ typedef struct {
 typedef struct {
     BufferEntry entries[REGISTER_BUFFER_SIZE];
     size_t head;        // Index where next entry will be written
-    size_t count;       // Number of valid entries (up to BUFFER_SIZE)
+    size_t count;       // Number of valid entries (up to USB_BUFFER_SIZE)
 } RollingBuffer;
 extern RollingBuffer buffer;
 

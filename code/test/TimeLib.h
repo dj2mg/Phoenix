@@ -66,11 +66,10 @@ inline int year(time_t t) {
     return timeinfo->tm_year + 1900;
 }
 
+inline void setTime(time_t t) { (void)t; }
+
 inline time_t now() {
     return time(nullptr);
-}
-
-inline void setTime(time_t t) {
 }
 
 #endif

@@ -1,3 +1,21 @@
+/* 
+Copyright (C) 2026 T41 EP Software Contributors
+See Contributors.txt for list of known authors.
+
+This file is part of Phoenix.
+
+Phoenix is free software: you can redistribute it and/or modify it under the 
+terms of the GNU General Public License as published by the Free Software 
+Foundation, either version 3 of the License, or (at your option) any later version.
+
+Phoenix is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR 
+PURPOSE. See the GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License along with Phoenix. 
+If not, see <https://www.gnu.org/licenses/>.
+*/
+
 #include "SDT.h"
 
 float32_t DMAMEM float_buffer_L[READ_BUFFER_SIZE];
@@ -105,7 +123,7 @@ void ApplyRFGain(DataBlock *data, float32_t rfGainAllBands_dB, float32_t bandGai
 }
 
 /**
- * Read in N_BLOCKS blocks of BUFFER_SIZE samples each from Q_in_R and Q_in_L 
+ * Read in N_BLOCKS blocks of USB_BUFFER_SIZE samples each from Q_in_R and Q_in_L 
  * AudioRecordQueue objects into the float_buffer_L and float_buffer_R buffers. 
  * The samples are converted to normalized floats in the range -1 to +1.
  * 
@@ -122,12 +140,12 @@ errno_t ReadIQInputBuffer(DataBlock *data){
             sp_R1 = Q_in_R.readBuffer();
             // Using arm_Math library, convert to float one buffer_size.
             // Float_buffer samples are now standardized from > -1.0 to < 1.0
-            arm_q15_to_float(sp_L1, &data->I[BUFFER_SIZE * i], BUFFER_SIZE);
-            arm_q15_to_float(sp_R1, &data->Q[BUFFER_SIZE * i], BUFFER_SIZE);
+            arm_q15_to_float(sp_L1, &data->I[USB_BUFFER_SIZE * i], USB_BUFFER_SIZE);
+            arm_q15_to_float(sp_R1, &data->Q[USB_BUFFER_SIZE * i], USB_BUFFER_SIZE);
             Q_in_L.freeBuffer();
             Q_in_R.freeBuffer();
         }
-        data->N = N_BLOCKS * BUFFER_SIZE;
+        data->N = N_BLOCKS * USB_BUFFER_SIZE;
         data->sampleRate_Hz = SR[SampleRate].rate;
         return ESUCCESS; // we filled the input buffers
     } else {
@@ -711,8 +729,8 @@ void PlayBuffer(DataBlock *data){
     for (unsigned i = 0; i < N_BLOCKS; i++) {
         sp_L1 = Q_out_L.getBuffer();
         sp_R1 = Q_out_R.getBuffer();
-        arm_float_to_q15(&data->I[BUFFER_SIZE * i], sp_L1, BUFFER_SIZE);
-        arm_float_to_q15(&data->I[BUFFER_SIZE * i], sp_R1, BUFFER_SIZE);
+        arm_float_to_q15(&data->I[USB_BUFFER_SIZE * i], sp_L1, USB_BUFFER_SIZE);
+        arm_float_to_q15(&data->I[USB_BUFFER_SIZE * i], sp_R1, USB_BUFFER_SIZE);
         Q_out_L.playBuffer();  // play it !
         Q_out_R.playBuffer();  // play it !
     }
@@ -723,6 +741,7 @@ void PlayBuffer(DataBlock *data){
  * 1) Configure the RXfilters
  * 2) Configure the AGC
  * 3) Configure the noise reduction
+ * 4) Set all arrays in DMAMEM to zero before using them
  */
 void InitializeSignalProcessing(void){
     InitializeFilters(ED.spectrum_zoom,&RXfilters);
@@ -734,6 +753,7 @@ void InitializeSignalProcessing(void){
     InitializeXanrNoiseReduction();
     InitializeSpectralNoiseReduction();
     InitializeCWProcessing(ED.currentWPM, &RXfilters);
+    ResetPSD();
 }
 
 /**
@@ -982,17 +1002,17 @@ errno_t ReadMicrophoneBuffer(DataBlock *data){
 
             // Using arm_Math library, convert to float one buffer_size.
             // Float_buffer samples are now standardized from > -1.0 to < 1.0
-            arm_q15_to_float(sp_L2, &data->I[BUFFER_SIZE * i], BUFFER_SIZE);
-            arm_q15_to_float(sp_R2, &data->Q[BUFFER_SIZE * i], BUFFER_SIZE);
+            arm_q15_to_float(sp_L2, &data->I[USB_BUFFER_SIZE * i], USB_BUFFER_SIZE);
+            arm_q15_to_float(sp_R2, &data->Q[USB_BUFFER_SIZE * i], USB_BUFFER_SIZE);
             Q_in_L_Ex.freeBuffer();
             Q_in_R_Ex.freeBuffer();
-            for (size_t k=0;k<BUFFER_SIZE;k++){
+            for (size_t k=0;k<USB_BUFFER_SIZE;k++){
                 buffer_rms_I += data->I[k]*data->I[k];
                 buffer_rms_Q += data->Q[k]*data->Q[k];
             }
 
         }
-        data->N = N_BLOCKS_EX * BUFFER_SIZE;
+        data->N = N_BLOCKS_EX * USB_BUFFER_SIZE;
         data->sampleRate_Hz = SR[SampleRate].rate;
         buffer_rms_I /= data->N;
         buffer_rms_Q /= data->N;
@@ -1042,23 +1062,23 @@ void PlayIQData(DataBlock *data){
     for (unsigned i = 0; i < N_BLOCKS_EX; i++) {
         sp_L2 = Q_out_L_Ex.getBuffer();
         sp_R2 = Q_out_R_Ex.getBuffer();
-        arm_float_to_q15(&data->I[BUFFER_SIZE * i], sp_L2, BUFFER_SIZE);
-        arm_float_to_q15(&data->Q[BUFFER_SIZE * i], sp_R2, BUFFER_SIZE);
+        arm_float_to_q15(&data->I[USB_BUFFER_SIZE * i], sp_L2, USB_BUFFER_SIZE);
+        arm_float_to_q15(&data->Q[USB_BUFFER_SIZE * i], sp_R2, USB_BUFFER_SIZE);
         // Add offsets to perform carrier nulling
-        arm_offset_q15(sp_L2,ED.DCOffsetI[ED.currentBand[ED.activeVFO]],sp_L2,BUFFER_SIZE);
-        arm_offset_q15(sp_R2,ED.DCOffsetQ[ED.currentBand[ED.activeVFO]],sp_R2,BUFFER_SIZE);
+        arm_offset_q15(sp_L2,ED.DCOffsetI[ED.currentBand[ED.activeVFO]],sp_L2,USB_BUFFER_SIZE);
+        arm_offset_q15(sp_R2,ED.DCOffsetQ[ED.currentBand[ED.activeVFO]],sp_R2,USB_BUFFER_SIZE);
         Q_out_L_Ex.playBuffer();  // play it !
         Q_out_R_Ex.playBuffer();  // play it !
     }
     // Calculate the RMS value of the outputs from the mic. Used for the TX "VU meter"
     float32_t buffer_rms_I = 0;
     float32_t buffer_rms_Q = 0;
-    for (size_t k=0;k<BUFFER_SIZE*N_BLOCKS_EX;k++){
+    for (size_t k=0;k<USB_BUFFER_SIZE*N_BLOCKS_EX;k++){
         buffer_rms_I += data->I[k]*data->I[k];
         buffer_rms_Q += data->Q[k]*data->Q[k];
     }
-    buffer_rms_I /= (BUFFER_SIZE*N_BLOCKS_EX);
-    buffer_rms_Q /= (BUFFER_SIZE*N_BLOCKS_EX);
+    buffer_rms_I /= (USB_BUFFER_SIZE*N_BLOCKS_EX);
+    buffer_rms_Q /= (USB_BUFFER_SIZE*N_BLOCKS_EX);
     buffer_rms_I = sqrt(buffer_rms_I);
     buffer_rms_Q = sqrt(buffer_rms_Q);
     I_out_RMS = tval*I_out_RMS + (1-tval)*buffer_rms_I;
